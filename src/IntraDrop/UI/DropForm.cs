@@ -141,7 +141,7 @@ public class DropForm : Form
     {
         string name = path.Replace('\\', '/');
         int idx = name.LastIndexOf('/');
-        if (idx >= 0) name = name[(idx + 1)..];
-        return name.Length > 28 ? name[..25] + "..." : name;
+        if (idx >= 0) name = name.Substring(idx + 1);
+        return name.Length > 28 ? name.Substring(0, 25) + "..." : name;
     }
 }

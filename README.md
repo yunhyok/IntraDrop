@@ -2,7 +2,7 @@
 
 인트라넷(사내망/가정망)으로 연결된 Windows 컴퓨터 사이에서 파일을 간단하게 주고받는 트레이 상주형 프로그램입니다.
 
-![.NET 8](https://img.shields.io/badge/.NET-8.0-blueviolet) ![Windows](https://img.shields.io/badge/Windows-10%2F11-0078D6) ![License](https://img.shields.io/badge/license-MIT-green)
+![.NET](https://img.shields.io/badge/.NET-8.0%20%7C%20Framework%204.8-blueviolet) ![Windows](https://img.shields.io/badge/Windows-7%20SP1%2B-0078D6) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## 주요 기능
 
@@ -17,11 +17,16 @@
 
 ## 설치
 
-1. [Releases](https://github.com/yunhyok/IntraDrop/releases)에서 최신 `IntraDrop-Setup-x.x.x.exe`를 내려받아 실행합니다.
-2. 파일을 주고받을 **모든 컴퓨터에 각각 설치**합니다.
-3. 설치 중 "Windows 시작 시 자동 실행" 옵션을 선택할 수 있습니다.
+[Releases](https://github.com/yunhyok/IntraDrop/releases)에서 사용하는 Windows 버전에 맞는 인스톨러를 내려받아 실행하고, 파일을 주고받을 **모든 컴퓨터에 각각 설치**합니다. 설치 중 "Windows 시작 시 자동 실행" 옵션을 선택할 수 있습니다.
 
-> .NET 런타임이 함께 포함된(self-contained) 빌드라 별도 런타임 설치가 필요 없습니다.
+| Windows 버전 | 인스톨러 | 비고 |
+|---|---|---|
+| Windows 10 / 11 (64비트) | `IntraDrop-Setup-x.x.x.exe` | .NET 런타임 포함, 별도 설치 불필요 |
+| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-x.x.x-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+
+서로 다른 버전의 Windows끼리도 정상적으로 파일을 주고받을 수 있습니다 (동일 프로토콜).
+
+> Windows 7 참고: 모니터별 DPI(배율) 전환은 Windows 10 이상에서만 지원되며, Windows 7에서는 로그인 시점의 시스템 배율을 따릅니다.
 
 ### 방화벽 안내
 
@@ -37,16 +42,21 @@
 ## 직접 빌드하기
 
 요구 사항: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), (인스톨러 빌드 시) [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+(net48 빌드는 NuGet 참조 어셈블리 패키지를 사용하므로 .NET Framework Developer Pack을 따로 설치할 필요가 없습니다.)
 
 ```powershell
-# 실행 파일 빌드 (self-contained 단일 파일)
-dotnet publish src/IntraDrop/IntraDrop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+# Windows 10/11용 (net8, self-contained 단일 파일)
+dotnet publish src/IntraDrop/IntraDrop.csproj -c Release -f net8.0-windows -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+
+# Windows 7용 (net48, AnyCPU)
+dotnet publish src/IntraDrop/IntraDrop.csproj -c Release -f net48
 
 # 인스톨러 빌드
-iscc installer/IntraDrop.iss
+iscc installer/IntraDrop.iss        # Windows 10/11용
+iscc installer/IntraDrop-Win7.iss   # Windows 7용
 ```
 
-인스톨러는 `installer/Output/IntraDrop-Setup-<버전>.exe`로 생성됩니다.
+인스톨러는 `installer/Output/`에 생성됩니다.
 
 ## 동작 방식 (프로토콜 개요)
 

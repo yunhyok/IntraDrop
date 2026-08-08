@@ -60,6 +60,7 @@ public class TransferServer
     private async Task HandleClientAsync(TcpClient client, CancellationToken ct)
     {
         string sender = "알 수 없음";
+        bool headerReceived = false;
         try
         {
             using var _ = client;
@@ -71,6 +72,7 @@ public class TransferServer
                 await Protocol.ReadMagicAsync(stream, headerCts.Token);
 
                 var header = await Protocol.ReadJsonAsync<TransferHeader>(stream, headerCts.Token);
+                headerReceived = true;
                 sender = string.IsNullOrWhiteSpace(header.SenderName) ? sender : header.SenderName;
 
                 if (header.Type == "ping")
@@ -88,7 +90,9 @@ public class TransferServer
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            TransferFailed?.Invoke(sender, ex.Message);
+            // 헤더도 받기 전에 끊긴 연결(포트 스캔, 상태 확인 등)은 조용히 무시
+            if (headerReceived)
+                TransferFailed?.Invoke(sender, ex.Message);
         }
     }
 
@@ -158,7 +162,7 @@ public class TransferServer
                         remaining -= n;
                     }
                 }
-                File.Move(partPath, dest, overwrite: false);
+                File.Move(partPath, dest);   // dest 는 이미 고유 경로 (존재 시 예외)
             }
             catch
             {
@@ -177,14 +181,14 @@ public class TransferServer
     {
         if (string.IsNullOrWhiteSpace(raw)) return null;
         string normalized = raw.Replace('\\', '/');
-        var parts = normalized.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var parts = normalized.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) return null;
 
         var invalid = Path.GetInvalidFileNameChars();
         var safeParts = new List<string>(parts.Length);
         foreach (var part in parts)
         {
-            if (part is "." or ".." || part.EndsWith(':')) return null;
+            if (part is "." or ".." || part[part.Length - 1] == ':') return null;
             var chars = part.Select(c => invalid.Contains(c) ? '_' : c).ToArray();
             string cleaned = new string(chars).TrimEnd(' ', '.');
             if (cleaned.Length == 0) return null;

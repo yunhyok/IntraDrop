@@ -24,7 +24,10 @@ internal static class Program
             return; // 이미 실행 중
         }
 
+#if !NETFRAMEWORK
+        // net48(Windows 7)은 app.manifest / App.config 로 DPI 인식을 선언한다
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+#endif
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 

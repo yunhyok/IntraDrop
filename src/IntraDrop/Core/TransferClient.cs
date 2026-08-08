@@ -94,16 +94,7 @@ public static class TransferClient
                 if (n == 0)
                     throw new IOException($"전송 중 파일이 변경되었습니다: {relPath}");
 
-                using var writeCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                writeCts.CancelAfter(WriteIdleMs);
-                try
-                {
-                    await stream.WriteAsync(buffer.AsMemory(0, n), writeCts.Token);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    throw new TimeoutException("상대방이 데이터를 받지 않습니다 (시간 초과).");
-                }
+                await Protocol.WriteWithIdleTimeoutAsync(stream, buffer, 0, n, WriteIdleMs, ct);
 
                 remaining -= n;
                 sentTotal += n;
@@ -127,7 +118,7 @@ public static class TransferClient
             string path = Path.GetFullPath(raw);
             if (File.Exists(path))
             {
-                result.Add((path, Path.GetFileName(path), new FileInfo(path).Length));
+                result.Add((path, Path.GetFileName(path)!, new FileInfo(path).Length));
             }
             else if (Directory.Exists(path))
             {
@@ -135,7 +126,7 @@ public static class TransferClient
                 string baseName = Path.GetFileName(baseDir);
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
                 {
-                    string rel = Path.GetRelativePath(baseDir, f).Replace('\\', '/');
+                    string rel = PathCompat.GetRelativePath(baseDir, f).Replace('\\', '/');
                     result.Add((f, baseName + "/" + rel, new FileInfo(f).Length));
                 }
             }

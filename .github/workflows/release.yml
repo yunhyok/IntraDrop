@@ -18,23 +18,29 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Publish (self-contained single file)
+      - name: Publish Windows 10/11 build (net8, self-contained single file)
         run: >
           dotnet publish src/IntraDrop/IntraDrop.csproj
-          -c Release -r win-x64 --self-contained true
+          -c Release -f net8.0-windows -r win-x64 --self-contained true
           -p:PublishSingleFile=true
           -p:IncludeNativeLibrariesForSelfExtract=true
+
+      - name: Publish Windows 7 build (net48, AnyCPU)
+        run: dotnet publish src/IntraDrop/IntraDrop.csproj -c Release -f net48
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
 
-      - name: Build installer
+      - name: Build Windows 10/11 installer
         run: iscc installer/IntraDrop.iss
 
-      - name: Upload artifact
+      - name: Build Windows 7 installer
+        run: iscc installer/IntraDrop-Win7.iss
+
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: installer
+          name: installers
           path: installer/Output/*.exe
 
       - name: Create GitHub Release

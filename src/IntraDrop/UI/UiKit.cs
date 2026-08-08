@@ -7,6 +7,10 @@ internal static class UiKit
 {
     public static void ApplyDpiScaling(Form form)
     {
+#if NETFRAMEWORK
+        // net48 기본 글꼴은 MS Sans Serif 8.25pt - 현대적인 Segoe UI로 통일 (한글은 맑은 고딕 폴백)
+        form.Font = new Font("Segoe UI", 9F);
+#endif
         form.AutoScaleMode = AutoScaleMode.Dpi;
         form.AutoScaleDimensions = new SizeF(96F, 96F);
     }

@@ -72,7 +72,7 @@ public class SettingsForm : Form
             Width = 130,
             Minimum = 1024,
             Maximum = 65535,
-            Value = Math.Clamp(settings.Port, 1024, 65535),
+            Value = Math.Max(1024, Math.Min(65535, settings.Port)),
             Anchor = AnchorStyles.None,
             Margin = new Padding(3, 3, 10, 3),
         };
@@ -141,7 +141,9 @@ public class SettingsForm : Form
         using var dlg = new FolderBrowserDialog
         {
             Description = "받은 파일을 저장할 폴더를 선택하세요.",
+#if !NETFRAMEWORK
             UseDescriptionForTitle = true,
+#endif
             SelectedPath = Directory.Exists(_folder.Text) ? _folder.Text : "",
         };
         if (dlg.ShowDialog(this) == DialogResult.OK)
