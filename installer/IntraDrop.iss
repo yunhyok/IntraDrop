@@ -3,7 +3,7 @@
 ;   dotnet publish src\IntraDrop\IntraDrop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
 
 #define MyAppName "IntraDrop"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "yunhyok"
 #define MyAppURL "https://github.com/yunhyok/IntraDrop"
 #define MyAppExeName "IntraDrop.exe"

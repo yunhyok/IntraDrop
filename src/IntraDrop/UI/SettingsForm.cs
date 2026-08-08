@@ -22,95 +22,118 @@ public class SettingsForm : Form
         Text = "IntraDrop 설정";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(430, 258);
         MaximizeBox = false;
         MinimizeBox = false;
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        UiKit.ApplyDpiScaling(this);
 
-        int y = 18;
+        _deviceName = new TextBox
+        {
+            Width = 280,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 3, 6),
+            Text = settings.DeviceName,
+        };
 
-        var lblName = new Label { Text = "내 장치 이름:", Location = new Point(16, y + 4), AutoSize = true };
-        _deviceName = new TextBox { Location = new Point(150, y), Width = 260, Text = settings.DeviceName };
-        y += 36;
-
-        var lblFolder = new Label { Text = "다운로드 폴더:", Location = new Point(16, y + 4), AutoSize = true };
-        _folder = new TextBox { Location = new Point(150, y), Width = 190, Text = settings.DownloadFolder };
-        var browse = new Button { Text = "찾아보기...", Location = new Point(346, y - 1), Size = new Size(64, 25) };
+        _folder = new TextBox
+        {
+            Width = 250,
+            Anchor = AnchorStyles.None,
+            Text = settings.DownloadFolder,
+        };
+        var browse = UiKit.DialogButton("찾아보기...");
+        browse.MinimumSize = new Size(0, 27);
         browse.Click += (_, _) => BrowseFolder();
-        y += 36;
+        var folderRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 3, 0, 3),
+        };
+        folderRow.Controls.Add(_folder);
+        folderRow.Controls.Add(browse);
 
-        var lblThreshold = new Label { Text = "수락 확인 크기:", Location = new Point(16, y + 4), AutoSize = true };
         _threshold = new ComboBox
         {
-            Location = new Point(150, y),
-            Width = 120,
+            Width = 170,
             DropDownStyle = ComboBoxStyle.DropDownList,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 3, 2),
         };
         foreach (var (label, _) in ThresholdOptions) _threshold.Items.Add(label);
         int idx = Array.FindIndex(ThresholdOptions, o => o.MB == settings.ConfirmThresholdMB);
         _threshold.SelectedIndex = idx >= 0 ? idx : 0;
-        var lblThresholdHint = new Label
-        {
-            Text = "이 크기 이상은 받는 쪽에서 수락해야 합니다.",
-            Location = new Point(150, y + 26),
-            AutoSize = true,
-            ForeColor = SystemColors.GrayText,
-        };
-        y += 56;
 
-        var lblPort = new Label { Text = "포트:", Location = new Point(16, y + 4), AutoSize = true };
         _port = new NumericUpDown
         {
-            Location = new Point(150, y),
-            Width = 90,
+            Width = 130,
             Minimum = 1024,
             Maximum = 65535,
             Value = Math.Clamp(settings.Port, 1024, 65535),
+            Anchor = AnchorStyles.None,
+            Margin = new Padding(3, 3, 10, 3),
         };
-        var lblPortHint = new Label
+        var portHint = new Label
         {
             Text = "모든 컴퓨터가 같은 포트를 사용해야 합니다.",
-            Location = new Point(248, y + 4),
             AutoSize = true,
             ForeColor = SystemColors.GrayText,
+            Anchor = AnchorStyles.None,
         };
-        y += 36;
+        var portRow = new FlowLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            FlowDirection = FlowDirection.LeftToRight,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(0, 3, 0, 3),
+        };
+        portRow.Controls.Add(_port);
+        portRow.Controls.Add(portHint);
 
         _autoStart = new CheckBox
         {
             Text = "Windows 시작 시 자동 실행",
-            Location = new Point(150, y),
             AutoSize = true,
             Checked = settings.AutoStart,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 8, 3, 8),
         };
-        y += 36;
 
-        var ok = new Button
-        {
-            Text = "저장",
-            DialogResult = DialogResult.OK,
-            Location = new Point(246, y),
-            Size = new Size(80, 28),
-        };
+        var ok = UiKit.DialogButton("저장", DialogResult.OK);
         ok.Click += (_, _) => ValidateInput();
-        var cancel = new Button
-        {
-            Text = "취소",
-            DialogResult = DialogResult.Cancel,
-            Location = new Point(332, y),
-            Size = new Size(80, 28),
-        };
-
+        var cancel = UiKit.DialogButton("취소", DialogResult.Cancel);
         AcceptButton = ok;
         CancelButton = cancel;
 
-        Controls.AddRange(new Control[]
+        var layout = new TableLayoutPanel
         {
-            lblName, _deviceName,
-            lblFolder, _folder, browse,
-            lblThreshold, _threshold, lblThresholdHint,
-            lblPort, _port, lblPortHint,
-            _autoStart, ok, cancel,
-        });
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 7,
+            Padding = new Padding(14),
+        };
+        int row = 0;
+        layout.Controls.Add(UiKit.FieldLabel("내 장치 이름:"), 0, row);
+        layout.Controls.Add(_deviceName, 1, row++);
+        layout.Controls.Add(UiKit.FieldLabel("다운로드 폴더:"), 0, row);
+        layout.Controls.Add(folderRow, 1, row++);
+        layout.Controls.Add(UiKit.FieldLabel("수락 확인 크기:"), 0, row);
+        layout.Controls.Add(_threshold, 1, row++);
+        layout.Controls.Add(UiKit.HintLabel("이 크기 이상은 받는 쪽에서 수락해야 합니다."), 1, row++);
+        layout.Controls.Add(UiKit.FieldLabel("포트:"), 0, row);
+        layout.Controls.Add(portRow, 1, row++);
+        layout.Controls.Add(_autoStart, 1, row++);
+
+        var buttons = UiKit.ButtonRow(ok, cancel);
+        layout.Controls.Add(buttons, 0, row);
+        layout.SetColumnSpan(buttons, 2);
+
+        Controls.Add(layout);
     }
 
     private void BrowseFolder()

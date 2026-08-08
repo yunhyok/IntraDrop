@@ -46,7 +46,7 @@ dotnet publish src/IntraDrop/IntraDrop.csproj -c Release -r win-x64 --self-conta
 iscc installer/IntraDrop.iss
 ```
 
-인스톨러는 `installer/Output/IntraDrop-Setup-1.0.0.exe`로 생성됩니다.
+인스톨러는 `installer/Output/IntraDrop-Setup-<버전>.exe`로 생성됩니다.
 
 ## 동작 방식 (프로토콜 개요)
 

@@ -16,41 +16,42 @@ public class IncomingPromptForm : Form
         Text = "IntraDrop - 파일 수신 요청";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(390, 168);
         TopMost = true;
         MaximizeBox = false;
         MinimizeBox = false;
         ShowInTaskbar = true;
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        UiKit.ApplyDpiScaling(this);
 
         string sender = string.IsNullOrWhiteSpace(senderName) ? "알 수 없는 컴퓨터" : senderName;
 
         var message = new Label
         {
-            Location = new Point(20, 18),
-            Size = new Size(350, 66),
+            AutoSize = true,
+            MaximumSize = new Size(420, 0),   // 이 폭에서 자동 줄바꿈
             Text = $"{sender} 님이 큰 파일을 보내려고 합니다.\n\n" +
                    $"파일 {fileCount}개, 총 {Protocol.FormatSize(totalSize)}",
             Font = new Font(Font.FontFamily, 9.5f),
+            Margin = new Padding(6, 6, 6, 6),
         };
 
-        var accept = new Button
-        {
-            Text = "수락",
-            DialogResult = DialogResult.Yes,
-            Location = new Point(196, 120),
-            Size = new Size(85, 30),
-        };
-        _reject = new Button
-        {
-            Text = $"거절 ({_remaining})",
-            DialogResult = DialogResult.No,
-            Location = new Point(288, 120),
-            Size = new Size(85, 30),
-        };
-
+        var accept = UiKit.DialogButton("수락", DialogResult.Yes);
+        _reject = UiKit.DialogButton($"거절 ({_remaining})", DialogResult.No);
         AcceptButton = accept;
         CancelButton = _reject;
-        Controls.AddRange(new Control[] { message, accept, _reject });
+
+        var layout = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 1,
+            RowCount = 2,
+            Padding = new Padding(14),
+        };
+        layout.Controls.Add(message, 0, 0);
+        layout.Controls.Add(UiKit.ButtonRow(accept, _reject), 0, 1);
+        Controls.Add(layout);
 
         _timer = new System.Windows.Forms.Timer { Interval = 1000 };
         _timer.Tick += (_, _) =>

@@ -191,8 +191,9 @@ public class TrayApplicationContext : ApplicationContext
 
     private void ShowAbout()
     {
+        string version = Application.ProductVersion.Split('+')[0];
         MessageBox.Show(
-            "IntraDrop 1.0.0\n\n인트라넷 컴퓨터 간 파일 전송 트레이 프로그램\n" +
+            $"IntraDrop {version}\n\n인트라넷 컴퓨터 간 파일 전송 트레이 프로그램\n" +
             "https://github.com/yunhyok/IntraDrop\n\n" +
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
             "· 컴퓨터 더블클릭: 보내기 창 열기\n" +

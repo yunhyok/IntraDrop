@@ -22,10 +22,9 @@ public class DropForm : Form
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
-        ClientSize = new Size(280, 190);
-        var wa = Screen.PrimaryScreen?.WorkingArea ?? new Rectangle(0, 0, 1024, 768);
-        Location = new Point(wa.Right - Width - 24, wa.Bottom - Height - 24);
+        ClientSize = new Size(300, 200);
         AllowDrop = true;
+        UiKit.ApplyDpiScaling(this);
 
         _dropLabel = new Label
         {
@@ -49,11 +48,15 @@ public class DropForm : Form
         _status = new Label
         {
             Dock = DockStyle.Bottom,
-            Height = 22,
             Text = "대기 중",
             TextAlign = ContentAlignment.MiddleLeft,
             ForeColor = SystemColors.GrayText,
+            AutoEllipsis = true,
+            Padding = new Padding(4, 0, 4, 0),
         };
+        // 높이를 글꼴에 맞춰 유지 (DPI/글꼴 변경 시 잘림 방지)
+        _status.Height = _status.Font.Height + 10;
+        _status.FontChanged += (_, _) => _status.Height = _status.Font.Height + 10;
 
         Controls.Add(_dropLabel);
         Controls.Add(_progress);
@@ -63,6 +66,14 @@ public class DropForm : Form
         DragDrop += OnDragDrop;
         _dropLabel.DragEnter += OnDragEnter;
         _dropLabel.DragDrop += OnDragDrop;
+    }
+
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        // DPI 배율 적용 후의 실제 크기로 화면 우하단에 배치
+        var wa = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Location = new Point(wa.Right - Width - 24, wa.Bottom - Height - 24);
     }
 
     private void OnDragEnter(object? sender, DragEventArgs e)

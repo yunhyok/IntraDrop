@@ -14,36 +14,39 @@ public class PeerEditForm : Form
         Text = existing == null ? "컴퓨터 등록" : "컴퓨터 수정";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterParent;
-        ClientSize = new Size(340, 150);
         MaximizeBox = false;
         MinimizeBox = false;
+        AutoSize = true;
+        AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        UiKit.ApplyDpiScaling(this);
 
-        var lblNick = new Label { Text = "별명:", Location = new Point(16, 20), AutoSize = true };
-        _nickname = new TextBox { Location = new Point(110, 16), Width = 210 };
+        _nickname = new TextBox { Width = 240, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 3, 6) };
+        _host = new TextBox { Width = 240, Anchor = AnchorStyles.Left, Margin = new Padding(3, 6, 3, 6) };
 
-        var lblHost = new Label { Text = "주소(IP):", Location = new Point(16, 56), AutoSize = true };
-        _host = new TextBox { Location = new Point(110, 52), Width = 210 };
-
-        var ok = new Button
-        {
-            Text = "확인",
-            DialogResult = DialogResult.OK,
-            Location = new Point(156, 104),
-            Size = new Size(80, 28),
-        };
-        ok.Click += (_, e) => Validate(e);
-
-        var cancel = new Button
-        {
-            Text = "취소",
-            DialogResult = DialogResult.Cancel,
-            Location = new Point(242, 104),
-            Size = new Size(80, 28),
-        };
-
+        var ok = UiKit.DialogButton("확인", DialogResult.OK);
+        ok.Click += (_, _) => ValidateInput();
+        var cancel = UiKit.DialogButton("취소", DialogResult.Cancel);
         AcceptButton = ok;
         CancelButton = cancel;
-        Controls.AddRange(new Control[] { lblNick, _nickname, lblHost, _host, ok, cancel });
+
+        var layout = new TableLayoutPanel
+        {
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            ColumnCount = 2,
+            RowCount = 3,
+            Padding = new Padding(14),
+        };
+        layout.Controls.Add(UiKit.FieldLabel("별명:"), 0, 0);
+        layout.Controls.Add(_nickname, 1, 0);
+        layout.Controls.Add(UiKit.FieldLabel("주소(IP):"), 0, 1);
+        layout.Controls.Add(_host, 1, 1);
+
+        var buttons = UiKit.ButtonRow(ok, cancel);
+        layout.Controls.Add(buttons, 0, 2);
+        layout.SetColumnSpan(buttons, 2);
+
+        Controls.Add(layout);
 
         if (existing != null)
         {
@@ -52,7 +55,7 @@ public class PeerEditForm : Form
         }
     }
 
-    private void Validate(EventArgs e)
+    private void ValidateInput()
     {
         string host = _host.Text.Trim();
         if (host.Length == 0)

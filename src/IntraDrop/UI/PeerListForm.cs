@@ -7,11 +7,6 @@ public class PeerListForm : Form
 {
     private readonly TrayApplicationContext _ctx;
     private readonly ListView _list;
-    private readonly Button _btnAdd;
-    private readonly Button _btnEdit;
-    private readonly Button _btnDelete;
-    private readonly Button _btnRefresh;
-    private readonly Button _btnSend;
     private int _refreshGeneration;
 
     public PeerListForm(TrayApplicationContext ctx)
@@ -20,9 +15,10 @@ public class PeerListForm : Form
 
         Text = "IntraDrop - 컴퓨터 목록";
         StartPosition = FormStartPosition.CenterScreen;
-        Size = new Size(520, 360);
-        MinimumSize = new Size(440, 280);
+        Size = new Size(560, 380);
+        MinimumSize = new Size(460, 300);
         MaximizeBox = false;
+        UiKit.ApplyDpiScaling(this);
 
         _list = new ListView
         {
@@ -41,23 +37,26 @@ public class PeerListForm : Form
         {
             Dock = DockStyle.Bottom,
             FlowDirection = FlowDirection.LeftToRight,
-            Height = 42,
-            Padding = new Padding(6, 6, 6, 6),
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(6),
         };
-        _btnAdd = MakeButton("추가(&A)", (_, _) => AddPeer());
-        _btnEdit = MakeButton("수정(&E)", (_, _) => EditPeer());
-        _btnDelete = MakeButton("삭제(&D)", (_, _) => DeletePeer());
-        _btnRefresh = MakeButton("새로고침(&R)", (_, _) => RefreshStatusAsync());
-        _btnSend = MakeButton("보내기 창(&S)", (_, _) => OpenDropForSelected());
-        buttons.Controls.AddRange(new Control[] { _btnAdd, _btnEdit, _btnDelete, _btnRefresh, _btnSend });
+        buttons.Controls.AddRange(new Control[]
+        {
+            MakeButton("추가(&A)", (_, _) => AddPeer()),
+            MakeButton("수정(&E)", (_, _) => EditPeer()),
+            MakeButton("삭제(&D)", (_, _) => DeletePeer()),
+            MakeButton("새로고침(&R)", (_, _) => RefreshStatusAsync()),
+            MakeButton("보내기 창(&S)", (_, _) => OpenDropForSelected()),
+        });
 
         var hint = new Label
         {
             Dock = DockStyle.Bottom,
-            Height = 22,
-            Text = "  컴퓨터를 더블클릭하면 보내기 창이 열립니다.",
+            AutoSize = true,
+            Text = "컴퓨터를 더블클릭하면 보내기 창이 열립니다.",
             ForeColor = SystemColors.GrayText,
-            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(8, 2, 3, 2),
         };
 
         Controls.Add(_list);
@@ -68,9 +67,25 @@ public class PeerListForm : Form
         RefreshStatusAsync();
     }
 
+    protected override void OnLoad(EventArgs e)
+    {
+        base.OnLoad(e);
+        // ListView 열 너비는 자동 스케일 대상이 아니므로 DPI에 맞춰 직접 변환
+        _list.Columns[0].Width = _list.LogicalToDeviceUnits(150);
+        _list.Columns[1].Width = _list.LogicalToDeviceUnits(130);
+        _list.Columns[2].Width = -2;   // 남은 폭 채우기
+    }
+
     private static Button MakeButton(string text, EventHandler onClick)
     {
-        var b = new Button { Text = text, AutoSize = true, Padding = new Padding(4, 1, 4, 1) };
+        var b = new Button
+        {
+            Text = text,
+            AutoSize = true,
+            AutoSizeMode = AutoSizeMode.GrowOnly,
+            MinimumSize = new Size(0, 30),
+            Padding = new Padding(8, 2, 8, 2),
+        };
         b.Click += onClick;
         return b;
     }
