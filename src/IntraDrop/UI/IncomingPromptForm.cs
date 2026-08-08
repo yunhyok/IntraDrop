@@ -1,0 +1,74 @@
+using IntraDrop.Core;
+
+namespace IntraDrop.UI;
+
+/// <summary>임계 크기 이상 수신 시 수락/거절을 묻는 대화상자. 60초 후 자동 거절.</summary>
+public class IncomingPromptForm : Form
+{
+    private const int TimeoutSeconds = 60;
+
+    private readonly System.Windows.Forms.Timer _timer;
+    private readonly Button _reject;
+    private int _remaining = TimeoutSeconds;
+
+    public IncomingPromptForm(string senderName, int fileCount, long totalSize)
+    {
+        Text = "IntraDrop - 파일 수신 요청";
+        FormBorderStyle = FormBorderStyle.FixedDialog;
+        StartPosition = FormStartPosition.CenterScreen;
+        ClientSize = new Size(390, 168);
+        TopMost = true;
+        MaximizeBox = false;
+        MinimizeBox = false;
+        ShowInTaskbar = true;
+
+        string sender = string.IsNullOrWhiteSpace(senderName) ? "알 수 없는 컴퓨터" : senderName;
+
+        var message = new Label
+        {
+            Location = new Point(20, 18),
+            Size = new Size(350, 66),
+            Text = $"{sender} 님이 큰 파일을 보내려고 합니다.\n\n" +
+                   $"파일 {fileCount}개, 총 {Protocol.FormatSize(totalSize)}",
+            Font = new Font(Font.FontFamily, 9.5f),
+        };
+
+        var accept = new Button
+        {
+            Text = "수락",
+            DialogResult = DialogResult.Yes,
+            Location = new Point(196, 120),
+            Size = new Size(85, 30),
+        };
+        _reject = new Button
+        {
+            Text = $"거절 ({_remaining})",
+            DialogResult = DialogResult.No,
+            Location = new Point(288, 120),
+            Size = new Size(85, 30),
+        };
+
+        AcceptButton = accept;
+        CancelButton = _reject;
+        Controls.AddRange(new Control[] { message, accept, _reject });
+
+        _timer = new System.Windows.Forms.Timer { Interval = 1000 };
+        _timer.Tick += (_, _) =>
+        {
+            _remaining--;
+            if (_remaining <= 0)
+            {
+                _timer.Stop();
+                DialogResult = DialogResult.No;
+                Close();
+            }
+            else
+            {
+                _reject.Text = $"거절 ({_remaining})";
+            }
+        };
+        _timer.Start();
+
+        FormClosed += (_, _) => _timer.Dispose();
+    }
+}
