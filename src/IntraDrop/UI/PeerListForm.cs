@@ -124,6 +124,35 @@ public class PeerListForm : Form
         _ctx.SavePeers();
         ReloadList();
         RefreshStatusAsync();
+        RegisterWithPeerAsync(peer);
+    }
+
+    /// <summary>수동으로 추가한 컴퓨터에 상호 등록을 요청한다(백그라운드). 실패는 조용히 무시한다.</summary>
+    private async void RegisterWithPeerAsync(PeerInfo peer)
+    {
+        var settings = _ctx.Settings;
+        string secret = SettingsStore.GetSecret(settings);
+        try
+        {
+            await TransferClient.RegisterAsync(peer.Host, settings.Port, settings.DeviceName, secret);
+        }
+        catch
+        {
+            return;
+        }
+
+        if (IsDisposed) return;
+        var item = _list.Items.Cast<ListViewItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, peer));
+        if (item == null || item.ListView == null) return;
+        item.SubItems[2].Text += " · 상대방에 등록됨";
+    }
+
+    /// <summary>서버가 상대 컴퓨터를 자동 등록했을 때 목록을 새로고침한다.</summary>
+    public void NotifyPeersChanged()
+    {
+        if (IsDisposed) return;
+        ReloadList();
+        RefreshStatusAsync();
     }
 
     private void EditPeer()

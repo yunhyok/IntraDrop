@@ -37,9 +37,11 @@ public class TrayApplicationContext : ApplicationContext
 
         _server.GetSettings = () => _settings;
         _server.ConfirmRequest = OnConfirmRequest;
+        _server.SavePeers = SavePeers;
         _server.TransferCompleted += OnTransferCompleted;
         _server.TransferFailed += OnTransferFailed;
         _server.TransferRejected += OnTransferRejected;
+        _server.PeerAutoRegistered += OnPeerAutoRegistered;
         StartServer();
     }
 
@@ -124,6 +126,17 @@ public class TrayApplicationContext : ApplicationContext
             _tray.ShowBalloonTip(5000, "파일 수신 거절됨",
                 $"{sender} 님의 전송({Protocol.FormatSize(totalSize)})을 받지 않았습니다.",
                 ToolTipIcon.Info);
+        }, null);
+    }
+
+    private void OnPeerAutoRegistered(string nickname, string ip)
+    {
+        _sync.Post(_ =>
+        {
+            _tray.ShowBalloonTip(5000, "새 컴퓨터 등록됨",
+                $"새 컴퓨터가 등록되었습니다: {nickname} ({ip})",
+                ToolTipIcon.Info);
+            _peerList?.NotifyPeersChanged();
         }, null);
     }
 

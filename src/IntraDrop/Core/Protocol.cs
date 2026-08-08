@@ -12,7 +12,7 @@ public class TransferItem
 
 public class TransferHeader
 {
-    public string Type { get; set; } = "transfer";   // "transfer" | "ping"
+    public string Type { get; set; } = "transfer";   // "transfer" | "ping" | "register"
     public string SenderName { get; set; } = "";
     public long TotalSize { get; set; }
     public List<TransferItem> Items { get; set; } = new();
@@ -22,138 +22,123 @@ public class PongMessage
 {
     public string Type { get; set; } = "pong";
     public string Name { get; set; } = "";
+    public string Version { get; set; } = "";
 }
 
 public static class Protocol
 {
-    public static readonly byte[] Magic = Encoding.ASCII.GetBytes("IDRP1");
+    /// <summary>보안 프로토콜 v2 매직. v1(IDRP1)과는 호환되지 않는다.</summary>
+    public static readonly byte[] Magic = Encoding.ASCII.GetBytes("IDRP2");
+
     public const int MaxJsonLength = 32 * 1024 * 1024;
-    private const int JsonIdleMs = 30_000;
+
+    /// <summary>한 번의 전송에 담을 수 있는 파일 개수 상한.</summary>
+    public const int MaxItemCount = 10_000;
+
+    // ── 연결 플래그 ──────────────────────────────────────────────────────
+    public const byte FlagPlain = 0x00;     // 평문 (공유 암호 없음)
+    public const byte FlagSecured = 0x01;   // 암호화·인증
+
+    // ── 서버 → 클라이언트 상태 코드 ──────────────────────────────────────
+    public const byte StatusRejected = 0;         // 사용자가 거절
+    public const byte StatusAccepted = 1;         // 수락 / 진행
+    public const byte StatusAuthFailed = 2;       // 암호 불일치 또는 MAC 오류
+    public const byte StatusSecretRequired = 3;   // 서버가 공유 암호를 요구 (평문 거부)
+    public const byte StatusNotRegistered = 4;    // 서버의 허용 목록에 없음
+    public const byte StatusNoServerSecret = 5;   // 서버에 암호 미설정 (암호화 불가)
+    public const byte StatusRefused = 6;          // 기타 거부 (디스크 부족 등)
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
     };
 
+    public static byte[] ToJsonBytes(object obj) =>
+        JsonSerializer.SerializeToUtf8Bytes(obj, obj.GetType(), JsonOptions);
+
+    public static T FromJsonBytes<T>(byte[] json) =>
+        JsonSerializer.Deserialize<T>(json, JsonOptions)
+        ?? throw new InvalidDataException("메시지를 해석할 수 없습니다.");
+
+    /// <summary>4바이트 길이 접두사 JSON 메시지를 쓴다 (pong 응답 전용).</summary>
     public static async Task WriteJsonAsync(Stream stream, object obj, CancellationToken ct)
     {
-        byte[] payload = JsonSerializer.SerializeToUtf8Bytes(obj, obj.GetType(), JsonOptions);
+        byte[] payload = ToJsonBytes(obj);
         byte[] len = new byte[4];
         BinaryPrimitives.WriteInt32LittleEndian(len, payload.Length);
-        await stream.WriteAsync(len, ct);
-        await stream.WriteAsync(payload, ct);
-        await stream.FlushAsync(ct);
+        await stream.WriteAsync(len, 0, len.Length, ct).ConfigureAwait(false);
+        await stream.WriteAsync(payload, 0, payload.Length, ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
+    /// <summary>4바이트 길이 접두사 JSON 메시지를 읽는다 (pong 응답 전용).</summary>
     public static async Task<T> ReadJsonAsync<T>(Stream stream, CancellationToken ct)
     {
         byte[] len = new byte[4];
-        await ReadExactlyIdleAsync(stream, len, JsonIdleMs, ct);
+        await ReadExactlyAsync(stream, len, 0, len.Length, ct).ConfigureAwait(false);
         int length = BinaryPrimitives.ReadInt32LittleEndian(len);
         if (length <= 0 || length > MaxJsonLength)
             throw new InvalidDataException($"잘못된 메시지 길이: {length}");
         byte[] payload = new byte[length];
-        await ReadExactlyIdleAsync(stream, payload, JsonIdleMs, ct);
-        return JsonSerializer.Deserialize<T>(payload, JsonOptions)
-               ?? throw new InvalidDataException("메시지를 해석할 수 없습니다.");
+        await ReadExactlyAsync(stream, payload, 0, payload.Length, ct).ConfigureAwait(false);
+        return FromJsonBytes<T>(payload);
     }
 
-    public static async Task WriteMagicAsync(Stream stream, CancellationToken ct)
+    /// <summary>매직 5바이트 + 플래그 1바이트를 쓴다.</summary>
+    public static async Task WriteMagicAsync(Stream stream, byte flags, CancellationToken ct)
     {
-        await stream.WriteAsync(Magic, ct);
+        byte[] buf = new byte[Magic.Length + 1];
+        Buffer.BlockCopy(Magic, 0, buf, 0, Magic.Length);
+        buf[Magic.Length] = flags;
+        await stream.WriteAsync(buf, 0, buf.Length, ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
-    public static async Task ReadMagicAsync(Stream stream, CancellationToken ct)
+    /// <summary>매직 5바이트 + 플래그 1바이트를 읽고 플래그를 돌려준다.
+    /// 매직이 다르면(구버전 IDRP1 포함) 예외를 던진다.</summary>
+    public static async Task<byte> ReadMagicAsync(Stream stream, CancellationToken ct)
     {
-        byte[] buf = new byte[Magic.Length];
-        await ReadExactlyIdleAsync(stream, buf, JsonIdleMs, ct);
-        if (!buf.SequenceEqual(Magic))
-            throw new InvalidDataException("IntraDrop 프로토콜이 아닙니다.");
-    }
-
-    private static async Task ReadExactlyIdleAsync(Stream stream, byte[] buffer, int idleMs, CancellationToken ct)
-    {
-        int offset = 0;
-        while (offset < buffer.Length)
+        byte[] buf = new byte[Magic.Length + 1];
+        await ReadExactlyAsync(stream, buf, 0, buf.Length, ct).ConfigureAwait(false);
+        for (int i = 0; i < Magic.Length; i++)
         {
-            int n = await ReadWithIdleTimeoutAsync(stream, buffer, offset, buffer.Length - offset, idleMs, ct);
+            if (buf[i] != Magic[i])
+                throw new InvalidDataException("IntraDrop 프로토콜이 아닙니다.");
+        }
+        return buf[Magic.Length];
+    }
+
+    /// <summary>서버가 보내는 세션 nonce 16바이트를 읽는다.</summary>
+    public static async Task<byte[]> ReadNonceAsync(Stream stream, CancellationToken ct)
+    {
+        byte[] nonce = new byte[KeyMaterial.NonceLength];
+        await ReadExactlyAsync(stream, nonce, 0, nonce.Length, ct).ConfigureAwait(false);
+        return nonce;
+    }
+
+    public static async Task ReadExactlyAsync(
+        Stream stream, byte[] buffer, int offset, int count, CancellationToken ct)
+    {
+        int read = 0;
+        while (read < count)
+        {
+            int n = await stream.ReadAsync(buffer, offset + read, count - read, ct).ConfigureAwait(false);
             if (n == 0) throw new EndOfStreamException("연결이 종료되었습니다.");
-            offset += n;
+            read += n;
         }
     }
 
-    /// <summary>유휴 시간 제한을 두고 한 번 읽는다. 상대가 사라져도 무한 대기하지 않는다.
-    /// net48에서는 소켓 읽기가 CancellationToken 으로 중단되지 않으므로 WhenAny 방식을 쓴다.
-    /// (시간 초과 시 호출 측이 연결을 닫으면서 미완료 읽기가 함께 정리된다.)</summary>
-    public static async Task<int> ReadWithIdleTimeoutAsync(
-        Stream stream, byte[] buffer, int offset, int count, int idleMs, CancellationToken ct)
-    {
-#if NETFRAMEWORK
-        Task<int> read = stream.ReadAsync(buffer, offset, count, ct);
-        using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-        {
-            Task done = await Task.WhenAny(read, Task.Delay(idleMs, delayCts.Token)).ConfigureAwait(false);
-            if (done != read)
-            {
-                read.Observe();   // 버려지는 read 의 뒤늦은 예외를 소비
-                ct.ThrowIfCancellationRequested();
-                throw new TimeoutException("상대방 응답이 없습니다 (시간 초과).");
-            }
-            delayCts.Cancel();   // I/O 완료 시 Delay 타이머·토큰 등록 즉시 해제
-        }
-        return await read.ConfigureAwait(false);
-#else
-        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        idle.CancelAfter(idleMs);
-        try
-        {
-            return await stream.ReadAsync(buffer.AsMemory(offset, count), idle.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new TimeoutException("상대방 응답이 없습니다 (시간 초과).");
-        }
-#endif
-    }
-
-    /// <summary>유휴 시간 제한을 두고 쓴다. 상대가 데이터를 받지 않으면 시간 초과로 실패한다.</summary>
-    public static async Task WriteWithIdleTimeoutAsync(
-        Stream stream, byte[] buffer, int offset, int count, int idleMs, CancellationToken ct)
-    {
-#if NETFRAMEWORK
-        Task write = stream.WriteAsync(buffer, offset, count, ct);
-        using (var delayCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
-        {
-            Task done = await Task.WhenAny(write, Task.Delay(idleMs, delayCts.Token)).ConfigureAwait(false);
-            if (done != write)
-            {
-                write.Observe();   // 버려지는 write 의 뒤늦은 예외를 소비
-                ct.ThrowIfCancellationRequested();
-                throw new TimeoutException("상대방이 데이터를 받지 않습니다 (시간 초과).");
-            }
-            delayCts.Cancel();   // I/O 완료 시 Delay 타이머·토큰 등록 즉시 해제
-        }
-        await write.ConfigureAwait(false);
-#else
-        using var idle = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        idle.CancelAfter(idleMs);
-        try
-        {
-            await stream.WriteAsync(buffer.AsMemory(offset, count), idle.Token);
-        }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        {
-            throw new TimeoutException("상대방이 데이터를 받지 않습니다 (시간 초과).");
-        }
-#endif
-    }
-
-    public static async Task<byte> ReadByteWithTimeoutAsync(Stream stream, int timeoutMs, CancellationToken ct)
+    public static async Task<byte> ReadByteAsync(Stream stream, CancellationToken ct)
     {
         byte[] one = new byte[1];
-        int n = await ReadWithIdleTimeoutAsync(stream, one, 0, 1, timeoutMs, ct);
-        if (n == 0) throw new EndOfStreamException("연결이 종료되었습니다.");
+        await ReadExactlyAsync(stream, one, 0, 1, ct).ConfigureAwait(false);
         return one[0];
+    }
+
+    public static async Task WriteByteAsync(Stream stream, byte value, CancellationToken ct)
+    {
+        await stream.WriteAsync(new[] { value }, 0, 1, ct).ConfigureAwait(false);
+        await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
     public static string FormatSize(long bytes)

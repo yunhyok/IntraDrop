@@ -18,6 +18,13 @@ public class AppSettings
     public int Port { get; set; } = 45671;
     public List<PeerInfo> Peers { get; set; } = new();
 
+    /// <summary>DPAPI 로 보호한 공유 암호(base64). 빈 문자열이면 인증·암호화 없음.
+    /// 직접 읽지 말고 SettingsStore.GetSecret / SetSecret 을 쓴다.</summary>
+    public string SecretProtected { get; set; } = "";
+
+    /// <summary>켜면 등록된 컴퓨터에서 온 전송만 받는다.</summary>
+    public bool AcceptFromRegisteredOnly { get; set; }
+
     public long ConfirmThresholdBytes => (long)ConfirmThresholdMB * 1024 * 1024;
 
     public static string DefaultDownloadFolder => Path.Combine(

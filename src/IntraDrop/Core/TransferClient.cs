@@ -2,9 +2,41 @@ using System.Net.Sockets;
 
 namespace IntraDrop.Core;
 
-public class TransferRejectedException : Exception
+/// <summary>서버가 돌려준 상태 코드에 해당하는 예외. Message 를 그대로 사용자에게 보여주면 된다.</summary>
+public class TransferStatusException : Exception
 {
-    public TransferRejectedException() : base("상대방이 수신을 거절했습니다.") { }
+    public TransferStatusException(byte status, string message) : base(message)
+    {
+        Status = status;
+    }
+
+    public byte Status { get; }
+
+    public static TransferStatusException From(byte status) =>
+        status == Protocol.StatusRejected
+            ? new TransferRejectedException()
+            : new TransferStatusException(status, Describe(status));
+
+    private static string Describe(byte status) => status switch
+    {
+        Protocol.StatusAuthFailed =>
+            "공유 암호가 일치하지 않습니다. 양쪽 컴퓨터에 같은 암호를 설정하세요.",
+        Protocol.StatusSecretRequired =>
+            "상대방이 공유 암호를 요구합니다. 설정에서 같은 암호를 입력하세요.",
+        Protocol.StatusNotRegistered =>
+            "상대방의 허용 목록에 이 컴퓨터가 없습니다. 상대방에게 등록을 요청하세요.",
+        Protocol.StatusNoServerSecret =>
+            "상대방에게는 공유 암호가 설정되어 있지 않습니다. 양쪽 설정을 맞추세요.",
+        Protocol.StatusRefused =>
+            "상대방이 지금 파일을 받을 수 없습니다 (저장 공간 부족 등).",
+        _ => $"상대방이 전송을 거부했습니다 (코드 {status}).",
+    };
+}
+
+public class TransferRejectedException : TransferStatusException
+{
+    public TransferRejectedException()
+        : base(Protocol.StatusRejected, "상대방이 수신을 거절했습니다.") { }
 }
 
 public record TransferProgress(string CurrentFile, int FileIndex, int FileCount, long SentBytes, long TotalBytes);
@@ -12,11 +44,13 @@ public record TransferProgress(string CurrentFile, int FileIndex, int FileCount,
 public static class TransferClient
 {
     private const int ConnectTimeoutMs = 10_000;
+    private const int HeaderIdleMs = 30_000;
     private const int AcceptWaitMs = 130_000;   // 수신 측 수락 대기 (수신 대화상자 60초 + 여유)
     private const int AckWaitMs = 120_000;
     private const int WriteIdleMs = 60_000;
 
-    /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름을 반환한다.</summary>
+    /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름을 반환한다.
+    /// ping 은 언제나 평문이며 상대의 공유 암호 설정과 무관하게 응답한다.</summary>
     public static async Task<string?> PingAsync(string host, int port, string myName, int timeoutMs = 2500)
     {
         try
@@ -24,10 +58,14 @@ public static class TransferClient
             using var cts = new CancellationTokenSource(timeoutMs);
             using var tcp = new TcpClient();
             await tcp.ConnectAsync(host, port, cts.Token);
-            using var stream = tcp.GetStream();
-            await Protocol.WriteMagicAsync(stream, cts.Token);
-            await Protocol.WriteJsonAsync(stream,
-                new TransferHeader { Type = "ping", SenderName = myName }, cts.Token);
+            using var net = tcp.GetStream();
+            using var stream = new TimeoutStream(net, timeoutMs, timeoutMs, cts.Token);
+
+            await Protocol.WriteMagicAsync(stream, Protocol.FlagPlain, cts.Token);
+            byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
+            await Segment.WriteSegmentAsync(stream, null, nonce, Segment.IndexA,
+                Protocol.ToJsonBytes(new TransferHeader { Type = "ping", SenderName = myName }), cts.Token);
+
             var pong = await Protocol.ReadJsonAsync<PongMessage>(stream, cts.Token);
             return pong.Type == "pong" ? pong.Name : null;
         }
@@ -37,15 +75,41 @@ public static class TransferClient
         }
     }
 
+    /// <summary>상대방에게 이 컴퓨터를 등록해 달라고 요청한다 (상호 자동 등록).
+    /// 수동으로 컴퓨터를 추가할 때만 호출한다 — 자동 등록된 peer 에게 되보내면 등록 루프가 생긴다.</summary>
+    public static async Task RegisterAsync(
+        string host, int port, string myName, string? secret, int timeoutMs = ConnectTimeoutMs)
+    {
+        var key = KeyMaterial.FromSecret(secret);
+
+        using var cts = new CancellationTokenSource(timeoutMs);
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(host, port, cts.Token);
+        using var net = tcp.GetStream();
+        using var stream = new TimeoutStream(net, timeoutMs, timeoutMs, cts.Token);
+
+        await Protocol.WriteMagicAsync(stream, Flags(key), cts.Token);
+        byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
+            Protocol.ToJsonBytes(new TransferHeader { Type = "register", SenderName = myName }), cts.Token);
+
+        byte status = await Protocol.ReadByteAsync(stream, cts.Token);
+        if (status != Protocol.StatusAccepted)
+            throw TransferStatusException.From(status);
+    }
+
     public static async Task<int> SendAsync(
         string host, int port, string senderName,
         IReadOnlyList<string> paths,
+        string? secret,
         IProgress<TransferProgress>? progress,
         CancellationToken ct)
     {
         var files = CollectFiles(paths);
         if (files.Count == 0)
             throw new InvalidOperationException("보낼 파일이 없습니다.");
+        if (files.Count > Protocol.MaxItemCount)
+            throw new InvalidOperationException($"한 번에 보낼 수 있는 파일은 {Protocol.MaxItemCount}개까지입니다.");
 
         long totalSize = files.Sum(f => f.Size);
         var header = new TransferHeader
@@ -55,6 +119,8 @@ public static class TransferClient
             TotalSize = totalSize,
             Items = files.Select(f => new TransferItem { Path = f.RelPath, Size = f.Size }).ToList(),
         };
+
+        var key = KeyMaterial.FromSecret(secret);
 
         using var tcp = new TcpClient();
         using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
@@ -70,45 +136,61 @@ public static class TransferClient
             }
         }
 
-        using var stream = tcp.GetStream();
-        await Protocol.WriteMagicAsync(stream, ct);
-        await Protocol.WriteJsonAsync(stream, header, ct);
+        using var net = tcp.GetStream();
+        using var stream = new TimeoutStream(net, HeaderIdleMs, WriteIdleMs, ct);
 
-        byte accepted = await Protocol.ReadByteWithTimeoutAsync(stream, AcceptWaitMs, ct);
-        if (accepted != 1)
-            throw new TransferRejectedException();
+        await Protocol.WriteMagicAsync(stream, Flags(key), ct);
+        byte[] nonce = await Protocol.ReadNonceAsync(stream, ct);
 
-        long sentTotal = 0;
-        byte[] buffer = new byte[81920];
-        for (int i = 0; i < files.Count; i++)
+        // 세그먼트 A = 헤더 JSON
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
+            Protocol.ToJsonBytes(header), ct);
+
+        stream.ReadIdleMs = AcceptWaitMs;
+        byte status = await Protocol.ReadByteAsync(stream, ct);
+        if (status != Protocol.StatusAccepted)
+            throw TransferStatusException.From(status);
+
+        // 세그먼트 B = 모든 파일 바이트 연속 (헤더 Items 순서)
+        stream.ReadIdleMs = AckWaitMs;
+        using (var writer = await Segment.BeginWriteSegmentAsync(
+                   stream, key, nonce, Segment.IndexB, totalSize, ct))
         {
-            var (fullPath, relPath, size) = files[i];
-            progress?.Report(new TransferProgress(relPath, i + 1, files.Count, sentTotal, totalSize));
-
-            using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            long remaining = size;
-            while (remaining > 0)
+            long sentTotal = 0;
+            byte[] buffer = new byte[81920];
+            for (int i = 0; i < files.Count; i++)
             {
-                int toRead = (int)Math.Min(buffer.Length, remaining);
-                int n = await fs.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                if (n == 0)
-                    throw new IOException($"전송 중 파일이 변경되었습니다: {relPath}");
-
-                await Protocol.WriteWithIdleTimeoutAsync(stream, buffer, 0, n, WriteIdleMs, ct);
-
-                remaining -= n;
-                sentTotal += n;
+                var (fullPath, relPath, size) = files[i];
                 progress?.Report(new TransferProgress(relPath, i + 1, files.Count, sentTotal, totalSize));
-            }
-        }
-        await stream.FlushAsync(ct);
 
-        byte ack = await Protocol.ReadByteWithTimeoutAsync(stream, AckWaitMs, ct);
+                using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                long remaining = size;
+                while (remaining > 0)
+                {
+                    int toRead = (int)Math.Min(buffer.Length, remaining);
+                    int n = await fs.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                    if (n == 0)
+                        throw new IOException($"전송 중 파일이 변경되었습니다: {relPath}");
+
+                    await writer.WriteAsync(buffer, 0, n, ct);
+
+                    remaining -= n;
+                    sentTotal += n;
+                    progress?.Report(new TransferProgress(relPath, i + 1, files.Count, sentTotal, totalSize));
+                }
+            }
+            await writer.CompleteAsync(ct);
+        }
+
+        byte ack = await Protocol.ReadByteAsync(stream, ct);
         if (ack != 1)
             throw new IOException("상대방이 저장을 완료하지 못했습니다.");
 
         return files.Count;
     }
+
+    private static byte Flags(KeyMaterial? key) =>
+        key != null ? Protocol.FlagSecured : Protocol.FlagPlain;
 
     private static List<(string FullPath, string RelPath, long Size)> CollectFiles(IReadOnlyList<string> paths)
     {

@@ -111,8 +111,10 @@ public class DropForm : Form
             _status.ForeColor = SystemColors.ControlText;
             _status.Text = "연결 중...";
 
+            string secret = SettingsStore.GetSecret(settings);
             int count = await Task.Run(() => TransferClient.SendAsync(
-                _peer.Host, settings.Port, settings.DeviceName, paths, progress, CancellationToken.None));
+                _peer.Host, settings.Port, settings.DeviceName, paths,
+                secret, progress, CancellationToken.None));
 
             _progress.Value = 1000;
             _status.ForeColor = Color.DarkGreen;

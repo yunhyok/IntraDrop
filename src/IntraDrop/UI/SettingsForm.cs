@@ -1,3 +1,4 @@
+using IntraDrop.Core;
 using IntraDrop.Models;
 
 namespace IntraDrop.UI;
@@ -9,6 +10,8 @@ public class SettingsForm : Form
     private readonly ComboBox _threshold;
     private readonly CheckBox _autoStart;
     private readonly NumericUpDown _port;
+    private readonly TextBox _secret;
+    private readonly CheckBox _acceptFromRegisteredOnly;
 
     private static readonly (string Label, int MB)[] ThresholdOptions =
     {
@@ -43,7 +46,9 @@ public class SettingsForm : Form
             Text = settings.DownloadFolder,
         };
         var browse = UiKit.DialogButton("찾아보기...");
-        browse.MinimumSize = new Size(0, 27);
+        browse.MinimumSize = new Size(0, 0);
+        browse.Padding = new Padding(10, 1, 10, 1);
+        browse.Anchor = AnchorStyles.None;
         browse.Click += (_, _) => BrowseFolder();
         var folderRow = new FlowLayoutPanel
         {
@@ -103,6 +108,24 @@ public class SettingsForm : Form
             Margin = new Padding(3, 8, 3, 8),
         };
 
+        _secret = new TextBox
+        {
+            Width = 280,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 6, 3, 6),
+            UseSystemPasswordChar = true,
+            Text = SettingsStore.GetSecret(settings),
+        };
+
+        _acceptFromRegisteredOnly = new CheckBox
+        {
+            Text = "등록된 컴퓨터에서만 파일 받기",
+            AutoSize = true,
+            Checked = settings.AcceptFromRegisteredOnly,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 8, 3, 8),
+        };
+
         var ok = UiKit.DialogButton("저장", DialogResult.OK);
         ok.Click += (_, _) => ValidateInput();
         var cancel = UiKit.DialogButton("취소", DialogResult.Cancel);
@@ -114,7 +137,7 @@ public class SettingsForm : Form
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
-            RowCount = 7,
+            RowCount = 10,
             Padding = new Padding(14),
         };
         int row = 0;
@@ -128,6 +151,10 @@ public class SettingsForm : Form
         layout.Controls.Add(UiKit.FieldLabel("포트:"), 0, row);
         layout.Controls.Add(portRow, 1, row++);
         layout.Controls.Add(_autoStart, 1, row++);
+        layout.Controls.Add(UiKit.FieldLabel("공유 암호:"), 0, row);
+        layout.Controls.Add(_secret, 1, row++);
+        layout.Controls.Add(UiKit.HintLabel("모든 컴퓨터에 같은 암호를 설정하세요. 비워두면 인증·암호화 없음"), 1, row++);
+        layout.Controls.Add(_acceptFromRegisteredOnly, 1, row++);
 
         var buttons = UiKit.ButtonRow(ok, cancel);
         layout.Controls.Add(buttons, 0, row);
@@ -180,5 +207,7 @@ public class SettingsForm : Form
         settings.ConfirmThresholdMB = ThresholdOptions[_threshold.SelectedIndex].MB;
         settings.AutoStart = _autoStart.Checked;
         settings.Port = (int)_port.Value;
+        SettingsStore.SetSecret(settings, _secret.Text);
+        settings.AcceptFromRegisteredOnly = _acceptFromRegisteredOnly.Checked;
     }
 }

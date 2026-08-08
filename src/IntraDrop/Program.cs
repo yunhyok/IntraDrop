@@ -43,8 +43,8 @@ internal static class Program
         try
         {
             TransferClient.SendAsync(
-                host, settings.Port, settings.DeviceName,
-                paths, progress: null, CancellationToken.None)
+                host, settings.Port, settings.DeviceName, paths,
+                SettingsStore.GetSecret(settings), progress: null, CancellationToken.None)
                 .GetAwaiter().GetResult();
             return 0;
         }
