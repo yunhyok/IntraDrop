@@ -1,0 +1,41 @@
+{
+  "ownershipMarker": "Owned by Markdown HTML Companion v0.1.0",
+  "schemaVersion": 1,
+  "generator": {
+    "name": "Markdown HTML Companion",
+    "version": "0.1.0"
+  },
+  "generatedAt": "2026-08-11T01:59:12.291583+00:00",
+  "repository": "yunhyok/IntraDrop",
+  "baseBranch": "main",
+  "baseSha": "15aca1e254bd86e48c5f9d8b8b1ec0a7502abe8d",
+  "branch": "codex/add-html-companions-20260811",
+  "sourceMarkdownCount": 1,
+  "generatedHtmlCount": 1,
+  "documents": [
+    {
+      "source": "README.md",
+      "sourceBlobSha": "ad42da6914cd5cbf72d1ed1f697e97d79da96640",
+      "sourceSha256": "9518618df3611f882333c901069589b51aceec9a4648a29e59afe397ccef1d7a",
+      "output": "README.companion.html",
+      "outputSha256": "2202b74b2803e72373b2719865f4a53f49ba2733ec75ae54fb79dc400d00d15d",
+      "headingCount": 9,
+      "visualClassification": "PROCESS_FLOW",
+      "visualTitle": "IntraDrop transfer protocol",
+      "diagramAdded": true,
+      "evidence": [
+        {
+          "lineStart": 65,
+          "lineEnd": 74,
+          "summary": "Protocol sequence from TCP listener through nonce, header, acceptance, streaming, MAC verification, and close is explicit."
+        },
+        {
+          "lineStart": 76,
+          "lineEnd": 82,
+          "summary": "Security success/failure and allow-list behavior are explicit."
+        }
+      ],
+      "urlCount": 15
+    }
+  ]
+}
