@@ -8,6 +8,8 @@ public class PeerListForm : Form
     private readonly TrayApplicationContext _ctx;
     private readonly ListView _list;
     private int _refreshGeneration;
+    private CancellationTokenSource? _refreshCts;
+    private readonly SemaphoreSlim _transitiveSlots = new(3, 3);
 
     public PeerListForm(TrayApplicationContext ctx)
     {
@@ -241,6 +243,8 @@ public class PeerListForm : Form
     private async void RefreshStatusAsync()
     {
         int generation = ++_refreshGeneration;
+        _refreshCts?.Cancel(); _refreshCts?.Dispose(); _refreshCts = new CancellationTokenSource();
+        var refreshToken = _refreshCts.Token;
         var settings = _ctx.Settings;
 
         var snapshot = _list.Items.Cast<ListViewItem>()
@@ -252,9 +256,16 @@ public class PeerListForm : Form
 
         var tasks = snapshot.Select(async entry =>
         {
-            string? name = await TransferClient.PingAsync(
-                entry.Peer.Host, settings.Port, settings.DeviceName);
+            try
+            {
+            string? name;
+            var secretState = SettingsStore.ReadSecret(settings);
+            if (secretState.IsAvailable && !string.IsNullOrWhiteSpace(entry.Peer.DeviceId))
+                name = await TryTransitiveRefreshAsync(entry.Peer, settings, refreshToken);
+            else name = await TransferClient.PingAsync(entry.Peer.Host, settings.Port, settings.DeviceName);
             return (entry.Item, Name: name);
+            }
+            catch (OperationCanceledException) { return (entry.Item, Name: (string?)null); }
         }).ToList();
 
         foreach (var task in tasks)
@@ -267,6 +278,13 @@ public class PeerListForm : Form
         }
     }
 
+    private async Task<string?> TryTransitiveRefreshAsync(PeerInfo target, AppSettings settings, CancellationToken ct)
+    {
+        await _transitiveSlots.WaitAsync(ct);
+        try { return await new PeerRefreshCoordinator(settings, _ctx.PeerRegistry, _ctx.SavePeers).RefreshAsync(target, ct); }
+        finally { _transitiveSlots.Release(); }
+    }
+
     private void OpenDropForSelected()
     {
         var peer = SelectedPeer;
@@ -277,5 +295,12 @@ public class PeerListForm : Form
             return;
         }
         _ctx.OpenDropWindow(peer);
+    }
+
+    protected override void OnFormClosed(FormClosedEventArgs e)
+    {
+        var cts = _refreshCts; _refreshCts = null;
+        try { cts?.Cancel(); } catch { }
+        base.OnFormClosed(e);
     }
 }

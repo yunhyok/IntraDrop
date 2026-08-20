@@ -18,6 +18,14 @@ public class TransferHeader
     public string RecipientDeviceId { get; set; } = "";
     public long TotalSize { get; set; }
     public List<TransferItem> Items { get; set; } = new();
+    public List<PeerHint> PeerHints { get; set; } = new();
+    public List<string> RequestedDeviceIds { get; set; } = new();
+}
+
+public sealed class PeerHint
+{
+    public string DeviceId { get; set; } = "";
+    public string Host { get; set; } = "";
 }
 
 public class PongMessage
@@ -33,6 +41,7 @@ public static class Protocol
     public static readonly byte[] Magic = Encoding.ASCII.GetBytes("IDRP2");
 
     public const int MaxJsonLength = 32 * 1024 * 1024;
+    public const int MaxPeerSnapshotResponseLength = 64 * 1024;
 
     /// <summary>한 번의 전송에 담을 수 있는 파일 개수 상한.</summary>
     public const int MaxItemCount = 10_000;

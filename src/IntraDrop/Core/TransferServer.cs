@@ -56,11 +56,11 @@ public class TransferServer
 
     public bool IsRunning => _listener != null;
 
-    public void Start(int port)
+    public void Start(int port, IPAddress? bindAddress = null)
     {
         Stop();
         _cts = new CancellationTokenSource();
-        _listener = new TcpListener(IPAddress.Any, port);
+        _listener = new TcpListener(bindAddress ?? IPAddress.Any, port);
         _listener.Start();
         _ = AcceptLoopAsync(_listener, _cts.Token);
     }
@@ -170,6 +170,11 @@ public class TransferServer
             if (header.Type == "rediscover")
             {
                 await HandleRediscoverAsync(stream, header, segmentKey, nonce, remote, settings, ct);
+                return;
+            }
+            if (header.Type == "peer_snapshot")
+            {
+                await HandlePeerSnapshotAsync(stream, header, segmentKey, nonce, settings, ct);
                 return;
             }
 
@@ -287,13 +292,33 @@ public class TransferServer
         var peers = registry.Snapshot().Where(p => string.Equals(p.DeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase)).ToList();
         if (peers.Count != 1) { await RejectAsync(stream, Protocol.StatusNotRegistered, ct); return; }
         string host = Normalize(remote).ToString();
-        bool changed = registry.TryUpdateHost(header.SenderDeviceId, host);
-        if (!changed && !string.Equals(peers[0].Host, host, StringComparison.OrdinalIgnoreCase))
+        bool confirmed = registry.TryConfirmVerified(header.SenderDeviceId, peers[0].Host, host, null, out _);
+        if (!confirmed)
         { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
-        if (changed) PersistPeers();
+        PersistPeers();
         await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC,
             Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct);
+    }
+
+    private async Task HandlePeerSnapshotAsync(TimeoutStream stream, TransferHeader header, KeyMaterial? key,
+        byte[] nonce, AppSettings settings, CancellationToken ct)
+    {
+        if (key == null || string.IsNullOrWhiteSpace(header.SenderDeviceId) ||
+            !string.Equals(header.RecipientDeviceId, settings.DeviceId, StringComparison.OrdinalIgnoreCase))
+        { await RejectAsync(stream, Protocol.StatusAuthFailed, ct); return; }
+        if (header.RequestedDeviceIds == null || header.RequestedDeviceIds.Count == 0 || header.RequestedDeviceIds.Count > 64) { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
+        if (header.RequestedDeviceIds.Any(id => !Guid.TryParse(id, out _)) || header.RequestedDeviceIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != header.RequestedDeviceIds.Count)
+        { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
+        var registry = _peerRegistry ?? new PeerRegistry(settings);
+        var sender = registry.Snapshot().Where(p => string.Equals(p.DeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (sender.Count != 1) { await RejectAsync(stream, Protocol.StatusNotRegistered, ct); return; }
+        var requested = header.RequestedDeviceIds.Where(id => Guid.TryParse(id, out _)).Take(64).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var hints = registry.Snapshot().Where(p => !string.IsNullOrWhiteSpace(p.DeviceId) && requested.Contains(p.DeviceId) && Guid.TryParse(p.DeviceId, out _) && IPAddress.TryParse(p.Host, out _) && p.LastVerifiedUtc.HasValue && p.LastVerifiedUtc.Value <= DateTime.UtcNow.AddSeconds(30) && DateTime.UtcNow - p.LastVerifiedUtc.Value <= TimeSpan.FromMinutes(15))
+            .Take(64).Select(p => new PeerHint { DeviceId = p.DeviceId, Host = p.Host }).ToList();
+        await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC,
+            Protocol.ToJsonBytes(new TransferHeader { Type = "peer_snapshot", SenderDeviceId = settings.DeviceId, RecipientDeviceId = header.SenderDeviceId, PeerHints = hints }), ct);
     }
 
     // ── transfer ─────────────────────────────────────────────────────────

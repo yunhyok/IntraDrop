@@ -179,6 +179,25 @@ public sealed class PeerRegistry
             return true;
         }
     }
+
+    public bool TryConfirmVerified(string deviceId, string expectedHost, string authenticatedHost, string? nickname, out bool hostChanged)
+    {
+        hostChanged = false;
+        if (!ValidId(deviceId) || string.IsNullOrWhiteSpace(expectedHost) || string.IsNullOrWhiteSpace(authenticatedHost)) return false;
+        lock (Sync)
+        {
+            var matches = _settings.Peers.Where(p => string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count != 1 || !string.Equals(matches[0].Host?.Trim(), expectedHost.Trim(), StringComparison.OrdinalIgnoreCase)) return false;
+            var peer = matches[0];
+            if (_settings.Peers.Any(p => !ReferenceEquals(p, peer) && string.Equals(p.Host?.Trim(), authenticatedHost.Trim(), StringComparison.OrdinalIgnoreCase))) return false;
+            hostChanged = !string.Equals(peer.Host?.Trim(), authenticatedHost.Trim(), StringComparison.OrdinalIgnoreCase);
+            peer.Host = authenticatedHost.Trim();
+            if (!string.IsNullOrWhiteSpace(nickname)) peer.Nickname = nickname!.Trim();
+            peer.LastVerifiedUtc = DateTime.UtcNow;
+            return true;
+        }
+    }
+
     public bool TryPair(string deviceId, string host, string nickname)
     {
         if (!ValidId(deviceId) || string.Equals(deviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase) || !IPAddress.TryParse(host, out _)) return false;

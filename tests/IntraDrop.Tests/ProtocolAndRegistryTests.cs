@@ -53,6 +53,10 @@ public sealed class ProtocolAndRegistryTests
         var registry = new PeerRegistry(settings);
         var id = Guid.NewGuid().ToString();
         Assert.True(registry.TryPair(id, "192.168.1.10", "Alice"));
+        settings.Peers.Single().LastVerifiedUtc = DateTime.UtcNow.AddMinutes(-20);
+        Assert.False(registry.TryVerifiedHostUpdate(id, "192.168.1.10", "192.168.1.10", null));
+        Assert.True(registry.TryConfirmVerified(id, "192.168.1.10", "192.168.1.10", null, out var unchanged) && !unchanged);
+        Assert.True(settings.Peers.Single().LastVerifiedUtc > DateTime.UtcNow.AddMinutes(-1));
         Assert.False(registry.TryPair(id, "192.168.1.11", "Other"));
         Assert.False(registry.TryPair(settings.DeviceId, "192.168.1.12", "Self"));
         Assert.False(registry.TryPair("not-a-guid", "192.168.1.12", "Bad"));
@@ -182,5 +186,70 @@ public sealed class ProtocolAndRegistryTests
             Assert.Equal(localId, settings.Peers.Single().DeviceId);
         }
         finally { server.Stop(); try { Directory.Delete(settings.DownloadFolder, true); } catch { } }
+    }
+
+    [Fact]
+    public async Task TransitiveSnapshotRefreshesOnlyKnownPeerAfterDirectOldEndpointFails()
+    {
+        string secret = "test-shared-secret";
+        string aid = Guid.NewGuid().ToString(), bid = Guid.NewGuid().ToString(), cid = Guid.NewGuid().ToString();
+        int port = GetFreePort();
+        var a = new AppSettings { DeviceId = aid, Port = port }; SettingsStore.SetSecret(a, secret);
+        var b = new AppSettings { DeviceId = bid, Port = port }; SettingsStore.SetSecret(b, secret);
+        var c = new AppSettings { DeviceId = cid, Port = port }; SettingsStore.SetSecret(c, secret);
+        b.Peers.Add(new PeerInfo { DeviceId = aid, Host = "127.0.0.2", LastVerifiedUtc = DateTime.UtcNow });
+        b.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.1", LastVerifiedUtc = DateTime.UtcNow });
+        a.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.1", LastVerifiedUtc = DateTime.UtcNow });
+        c.Peers.Add(new PeerInfo { DeviceId = aid, Host = "127.0.0.1" });
+        c.Peers.Add(new PeerInfo { DeviceId = bid, Host = "127.0.0.3" });
+        var d = new AppSettings { DeviceId = Guid.NewGuid().ToString(), Port = port }; SettingsStore.SetSecret(d, secret); d.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.4", LastVerifiedUtc = DateTime.UtcNow });
+        var dServer = new TransferServer { GetSettings = () => d, SavePeers = () => { } };
+        var aServer = new TransferServer { GetSettings = () => a, SavePeers = () => { } };
+        var bServer = new TransferServer { GetSettings = () => b, SavePeers = () => { } };
+        dServer.Start(port, IPAddress.Parse("127.0.0.1")); aServer.Start(port, IPAddress.Parse("127.0.0.2")); bServer.Start(port, IPAddress.Parse("127.0.0.3"));
+        try
+        {
+            int persisted = 0;
+            var coordinator = new PeerRefreshCoordinator(c, new PeerRegistry(c), () => persisted++);
+            var result = await coordinator.RefreshAsync(c.Peers.Single(p => p.DeviceId == aid));
+            Assert.NotNull(result);
+            Assert.Equal(1, persisted);
+            Assert.Equal("127.0.0.2", c.Peers.Single(p => p.DeviceId == aid).Host);
+        }
+        finally { dServer.Stop(); aServer.Stop(); bServer.Stop(); }
+    }
+
+    [Fact]
+    public async Task PeerSnapshotRejectsNoSecretAndWrongSecretWithoutTopologyLeak()
+    {
+        string bid = Guid.NewGuid().ToString(), cid = Guid.NewGuid().ToString();
+        var settings = new AppSettings { DeviceId = bid, Port = GetFreePort() };
+        settings.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "127.0.0.2", LastVerifiedUtc = DateTime.UtcNow });
+        var server = new TransferServer { GetSettings = () => settings, SavePeers = () => { } };
+        server.Start(settings.Port, IPAddress.Parse("127.0.0.3"));
+        try
+        {
+            var requested = settings.Peers[0].DeviceId;
+            var noSecret = await Assert.ThrowsAsync<TransferStatusException>(() => TransferClient.RequestPeerSnapshotAsync("127.0.0.3", settings.Port, "C", cid, bid, "test-shared-secret", requestedDeviceIds: new[] { requested }));
+            Assert.Equal(Protocol.StatusNoServerSecret, noSecret.Status);
+            SettingsStore.SetSecret(settings, "test-shared-secret");
+            var unregistered = await Assert.ThrowsAsync<TransferStatusException>(() => TransferClient.RequestPeerSnapshotAsync("127.0.0.3", settings.Port, "C", cid, bid, "test-shared-secret", requestedDeviceIds: new[] { requested }));
+            Assert.Equal(Protocol.StatusNotRegistered, unregistered.Status);
+            var wrong = await Assert.ThrowsAsync<TransferStatusException>(() => TransferClient.RequestPeerSnapshotAsync("127.0.0.3", settings.Port, "C", cid, bid, "wrong-secret", requestedDeviceIds: new[] { requested }));
+            Assert.Equal(Protocol.StatusAuthFailed, wrong.Status);
+        }
+        finally { server.Stop(); }
+    }
+
+    [Fact]
+    public async Task CanceledRefreshDoesNotMutateOrSave()
+    {
+        var settings = new AppSettings { DeviceId = Guid.NewGuid().ToString() };
+        SettingsStore.SetSecret(settings, "test-shared-secret");
+        settings.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "127.0.0.1", LastVerifiedUtc = DateTime.UtcNow.AddMinutes(-20) });
+        int saves = 0; using var cts = new CancellationTokenSource(); cts.Cancel();
+        var target = settings.Peers[0]; string old = target.Host;
+        await Assert.ThrowsAsync<TaskCanceledException>(() => new PeerRefreshCoordinator(settings, new PeerRegistry(settings), () => saves++).RefreshAsync(target, cts.Token));
+        Assert.Equal(old, target.Host); Assert.Equal(0, saves);
     }
 }

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Net.Sockets;
 
 namespace IntraDrop.Core;
@@ -71,9 +72,36 @@ public static class TransferClient
         if (status != Protocol.StatusAccepted) throw TransferStatusException.From(status);
         byte[] json = await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.MaxJsonLength, cts.Token);
         var reply = Protocol.FromJsonBytes<TransferHeader>(json);
-        if (!string.Equals(reply.SenderDeviceId, targetDeviceId, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(reply.Type, "identity", StringComparison.OrdinalIgnoreCase) || !string.Equals(reply.SenderDeviceId, targetDeviceId, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("상대 장치 ID가 일치하지 않습니다.");
         return reply;
+    }
+
+    public static async Task<IReadOnlyList<PeerHint>> RequestPeerSnapshotAsync(string host, int port,
+        string myName, string myDeviceId, string targetDeviceId, string secret, int timeoutMs = 5000,
+        IReadOnlyList<string>? requestedDeviceIds = null, CancellationToken cancellationToken = default)
+    {
+        if (requestedDeviceIds == null || requestedDeviceIds.Count != 1 || requestedDeviceIds.Any(id => !Guid.TryParse(id, out _)) || requestedDeviceIds.Distinct(StringComparer.OrdinalIgnoreCase).Count() != requestedDeviceIds.Count) throw new ArgumentException("요청 장치 ID가 잘못되었습니다.");
+        string requestedId = requestedDeviceIds[0];
+        var key = KeyMaterial.FromSecret(secret) ?? throw new InvalidOperationException("공유 암호가 필요합니다.");
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken); cts.CancelAfter(timeoutMs);
+        using var tcp = new TcpClient(); await tcp.ConnectAsync(host, port, cts.Token);
+        using var stream = new TimeoutStream(tcp.GetStream(), timeoutMs, timeoutMs, cts.Token);
+        await Protocol.WriteMagicAsync(stream, Protocol.FlagSecured, cts.Token);
+        byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
+            Protocol.ToJsonBytes(new TransferHeader { Type = "peer_snapshot", SenderName = myName, SenderDeviceId = myDeviceId, RecipientDeviceId = targetDeviceId, RequestedDeviceIds = requestedDeviceIds?.Take(64).ToList() ?? new List<string>() }), cts.Token);
+        byte status = await Protocol.ReadByteAsync(stream, cts.Token);
+        if (status != Protocol.StatusAccepted) throw TransferStatusException.From(status);
+        var response = Protocol.FromJsonBytes<TransferHeader>(await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.MaxPeerSnapshotResponseLength, cts.Token));
+        if (!string.Equals(response.Type, "peer_snapshot", StringComparison.OrdinalIgnoreCase) || !string.Equals(response.SenderDeviceId, targetDeviceId, StringComparison.OrdinalIgnoreCase) || !string.Equals(response.RecipientDeviceId, myDeviceId, StringComparison.OrdinalIgnoreCase) || response.PeerHints == null || response.PeerHints.Count > 64) throw new InvalidDataException("잘못된 피어 힌트 응답입니다.");
+        var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase); var result = new List<PeerHint>();
+        foreach (var h in response.PeerHints)
+        {
+            if (!Guid.TryParse(h.DeviceId, out _) || !IPAddress.TryParse(h.Host, out _) || !ids.Add(h.DeviceId) || !string.Equals(h.DeviceId, requestedId, StringComparison.OrdinalIgnoreCase)) throw new InvalidDataException("잘못된 피어 힌트입니다.");
+            result.Add(h);
+        }
+        return result;
     }
 
     /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름을 반환한다.

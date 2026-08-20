@@ -86,12 +86,13 @@ public class TrayApplicationContext : ApplicationContext
         string? targetId = _peerRegistry.FindDeviceIdByTag(key, packet.DeviceTag);
         if (targetId == null || string.Equals(targetId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase)) return;
         var reply = await TransferClient.RediscoverAsync(source.ToString(), packet.TcpPort, _settings.DeviceName, _settings.DeviceId, targetId, usedSecret, cancellationToken: lifecycleToken).ConfigureAwait(false);
-        var current = SettingsStore.ReadSecret(_settings);
-        if (lifecycleToken.IsCancellationRequested || !_settings.EnablePeerDiscovery || !current.IsAvailable || !string.Equals(current.Secret, usedSecret, StringComparison.Ordinal)) return;
-        if (string.Equals(reply.SenderDeviceId, targetId, StringComparison.OrdinalIgnoreCase) && _peerRegistry.TryUpdateHost(targetId, source.ToString()))
+        var currentSecret = SettingsStore.ReadSecret(_settings);
+        if (lifecycleToken.IsCancellationRequested || !_settings.EnablePeerDiscovery || !currentSecret.IsAvailable || !string.Equals(currentSecret.Secret, usedSecret, StringComparison.Ordinal)) return;
+        var current = _peerRegistry.Snapshot().SingleOrDefault(p => string.Equals(p.DeviceId, targetId, StringComparison.OrdinalIgnoreCase));
+        if (current != null && string.Equals(reply.SenderDeviceId, targetId, StringComparison.OrdinalIgnoreCase) && _peerRegistry.TryConfirmVerified(targetId, current.Host, source.ToString(), null, out bool hostChanged))
         {
             SettingsStore.Save(_settings);
-            _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
+            if (hostChanged) _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
         }
     }
 
