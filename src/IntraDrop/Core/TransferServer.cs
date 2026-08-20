@@ -16,7 +16,7 @@ public class TransferServer
     private static readonly string AppVersion =
         typeof(TransferServer).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
 
-    private readonly object _peerSync = new();
+    private PeerRegistry? _peerRegistry;
 
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -28,6 +28,7 @@ public class TransferServer
     }
 
     public Func<AppSettings> GetSettings { get; set; } = () => new AppSettings();
+    public PeerRegistry? PeerRegistry { get => _peerRegistry; set => _peerRegistry = value; }
 
     /// <summary>이 컴퓨터의 공유 암호(평문). 빈 문자열이면 인증·암호화 없음.</summary>
     public Func<string> GetSecret { get; set; }
@@ -42,6 +43,16 @@ public class TransferServer
     public event Action<string, string>? TransferFailed;           // 보낸이, 사유
     public event Action<string, long>? TransferRejected;           // 보낸이, 크기
     public event Action<string, string>? PeerAutoRegistered;       // 별명, IP
+
+    private void PersistPeers()
+    {
+        try
+        {
+            if (_peerRegistry != null) _peerRegistry.Save();
+            else SavePeers?.Invoke();
+        }
+        catch { }
+    }
 
     public bool IsRunning => _listener != null;
 
@@ -104,7 +115,16 @@ public class TransferServer
             await stream.FlushAsync(ct);
 
             var settings = GetSettings();
-            var serverKey = KeyMaterial.FromSecret(SafeGetSecret());
+            var secretState = SettingsStore.ReadSecret(settings);
+            // A protected value that cannot be decrypted is not "no secret". Fail closed.
+            if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
+            {
+                await RejectAsync(stream, Protocol.StatusAuthFailed, ct);
+                return;
+            }
+            string? effectiveSecret = secretState.Availability == SettingsStore.SecretAvailability.Available
+                ? secretState.Secret : SafeGetSecret();
+            var serverKey = KeyMaterial.FromSecret(effectiveSecret);
 
             // 서버에 암호가 없으면 암호화 연결을 복호할 수 없다 → 즉시 거부.
             if (flags == Protocol.FlagSecured && serverKey == null)
@@ -142,14 +162,26 @@ public class TransferServer
                 return;
             }
 
-            if (header.Type == "register")
+        if (header.Type == "register")
             {
-                await HandleRegisterAsync(stream, header, remote, settings, ct);
+                await HandleRegisterAsync(stream, header, segmentKey, nonce, remote, settings, ct);
+                return;
+            }
+            if (header.Type == "rediscover")
+            {
+                await HandleRediscoverAsync(stream, header, segmentKey, nonce, remote, settings, ct);
                 return;
             }
 
             if (header.Type != "transfer")
                 return;
+
+            if (!string.IsNullOrWhiteSpace(header.RecipientDeviceId) &&
+                !string.Equals(header.RecipientDeviceId, settings.DeviceId, StringComparison.OrdinalIgnoreCase))
+            {
+                await RejectAsync(stream, Protocol.StatusWrongDevice, ct);
+                return;
+            }
 
             await ReceiveTransferAsync(stream, header, segmentKey, nonce, remote, settings, ct);
         }
@@ -203,7 +235,8 @@ public class TransferServer
     // ── register: 상호 자동 등록 ─────────────────────────────────────────
 
     private async Task HandleRegisterAsync(
-        TimeoutStream stream, TransferHeader header, IPAddress? remote, AppSettings settings, CancellationToken ct)
+        TimeoutStream stream, TransferHeader header, KeyMaterial? segmentKeyForRegister, byte[] registerNonce,
+        IPAddress? remote, AppSettings settings, CancellationToken ct)
     {
         if (remote == null)
         {
@@ -215,24 +248,52 @@ public class TransferServer
         string nickname = string.IsNullOrWhiteSpace(header.SenderName) ? ip : header.SenderName.Trim();
 
         bool added = false;
-        lock (_peerSync)
+        bool changed = false;
+        bool rejected = false;
+        var registry = _peerRegistry ?? new PeerRegistry(settings);
+        if (segmentKeyForRegister != null && !string.IsNullOrWhiteSpace(header.RecipientDeviceId) && !string.Equals(header.RecipientDeviceId, settings.DeviceId, StringComparison.OrdinalIgnoreCase))
+            rejected = true;
+        else if (segmentKeyForRegister != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId))
         {
-            bool exists = settings.Peers.Any(p =>
-                string.Equals((p.Host ?? "").Trim(), ip, StringComparison.OrdinalIgnoreCase));
-            if (!exists)
-            {
-                settings.Peers.Add(new PeerInfo { Nickname = nickname, Host = ip });
-                added = true;
-            }
+            changed = registry.TryRegisterAuthenticated(header.SenderDeviceId, ip, nickname, out added);
+            if (!changed) rejected = true;
         }
+        else if (!registry.Snapshot().Any(p => string.Equals((p.Host ?? "").Trim(), ip, StringComparison.OrdinalIgnoreCase)))
+            changed = registry.Add(new PeerInfo { Nickname = nickname, Host = ip });
 
-        if (added)
+        if (rejected) { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
+
+        if (changed)
         {
-            try { SavePeers?.Invoke(); } catch { }
+            PersistPeers();
             PeerAutoRegistered?.Invoke(nickname, ip);
         }
 
         await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
+        if (!string.IsNullOrWhiteSpace(header.SenderDeviceId) && segmentKeyForRegister != null)
+        {
+            try { await Segment.WriteSegmentAsync(stream, segmentKeyForRegister, registerNonce, Segment.IndexC,
+                Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct); } catch { }
+        }
+    }
+
+    private async Task HandleRediscoverAsync(TimeoutStream stream, TransferHeader header, KeyMaterial? key,
+        byte[] nonce, IPAddress? remote, AppSettings settings, CancellationToken ct)
+    {
+        if (key == null || remote == null || string.IsNullOrWhiteSpace(header.SenderDeviceId) ||
+            (!string.IsNullOrWhiteSpace(header.RecipientDeviceId) && !string.Equals(header.RecipientDeviceId, settings.DeviceId, StringComparison.OrdinalIgnoreCase)))
+        { await RejectAsync(stream, Protocol.StatusAuthFailed, ct); return; }
+        var registry = _peerRegistry ?? new PeerRegistry(settings);
+        var peers = registry.Snapshot().Where(p => string.Equals(p.DeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (peers.Count != 1) { await RejectAsync(stream, Protocol.StatusNotRegistered, ct); return; }
+        string host = Normalize(remote).ToString();
+        bool changed = registry.TryUpdateHost(header.SenderDeviceId, host);
+        if (!changed && !string.Equals(peers[0].Host, host, StringComparison.OrdinalIgnoreCase))
+        { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
+        if (changed) PersistPeers();
+        await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC,
+            Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct);
     }
 
     // ── transfer ─────────────────────────────────────────────────────────
@@ -267,7 +328,9 @@ public class TransferServer
         // 등록된 컴퓨터에서만 받기 (register 에는 적용하지 않는다)
         if (settings.AcceptFromRegisteredOnly)
         {
-            bool known = remote != null && await IsRegisteredAsync(settings, remote);
+            bool known = key != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId)
+                ? remote != null && IsRegisteredDevice(settings, header.SenderDeviceId, remote)
+                : remote != null && await IsRegisteredAsync(settings, remote);
             if (!known)
             {
                 await RejectAsync(stream, Protocol.StatusNotRegistered, ct);
@@ -362,6 +425,12 @@ public class TransferServer
         TransferCompleted?.Invoke(sender, items.Count, folder);
     }
 
+    private bool IsRegisteredDevice(AppSettings settings, string deviceId, IPAddress remote)
+    {
+        var matches = (_peerRegistry ?? new PeerRegistry(settings)).Snapshot().Where(p => string.Equals(p.DeviceId?.Trim(), deviceId.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        return matches.Count == 1 && IPAddress.TryParse(matches[0].Host?.Trim(), out var parsed) && SameAddress(parsed, remote);
+    }
+
     private static void DeleteParts(List<(string PartPath, string DestPath)> pending)
     {
         foreach (var (partPath, _) in pending)
@@ -376,11 +445,7 @@ public class TransferServer
     /// IP 문자열은 즉시 비교하고, 이름으로 등록된 peer 만 DNS 로 조회한다(전체 2초 제한).</summary>
     private async Task<bool> IsRegisteredAsync(AppSettings settings, IPAddress remote)
     {
-        List<PeerInfo> peers;
-        lock (_peerSync)
-        {
-            peers = settings.Peers.ToList();
-        }
+        List<PeerInfo> peers = (_peerRegistry ?? new PeerRegistry(settings)).Snapshot().ToList();
 
         var names = new List<string>();
         foreach (var peer in peers)

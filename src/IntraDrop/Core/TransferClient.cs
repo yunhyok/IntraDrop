@@ -27,6 +27,8 @@ public class TransferStatusException : Exception
             "상대방의 허용 목록에 이 컴퓨터가 없습니다. 상대방에게 등록을 요청하세요.",
         Protocol.StatusNoServerSecret =>
             "상대방에게는 공유 암호가 설정되어 있지 않습니다. 양쪽 설정을 맞추세요.",
+        Protocol.StatusWrongDevice =>
+            "지정한 대상 장치 ID와 연결된 컴퓨터가 아닙니다. 피어 주소를 확인하고 다시 등록하세요.",
         Protocol.StatusRefused =>
             "상대방이 지금 파일을 받을 수 없습니다 (저장 공간 부족 등).",
         _ => $"상대방이 전송을 거부했습니다 (코드 {status}).",
@@ -48,6 +50,31 @@ public static class TransferClient
     private const int AcceptWaitMs = 130_000;   // 수신 측 수락 대기 (수신 대화상자 60초 + 여유)
     private const int AckWaitMs = 120_000;
     private const int WriteIdleMs = 60_000;
+
+    /// <summary>Authenticated identity refresh. UDP discovery only supplies the candidate endpoint.</summary>
+    public static async Task<TransferHeader> RediscoverAsync(string host, int port, string myName,
+        string myDeviceId, string targetDeviceId, string secret, int timeoutMs = ConnectTimeoutMs, CancellationToken cancellationToken = default)
+    {
+        var key = KeyMaterial.FromSecret(secret);
+        if (key == null) throw new InvalidOperationException("공유 암호가 필요합니다.");
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeoutMs);
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(host, port, cts.Token);
+        using var net = tcp.GetStream();
+        using var stream = new TimeoutStream(net, timeoutMs, timeoutMs, cts.Token);
+        await Protocol.WriteMagicAsync(stream, Protocol.FlagSecured, cts.Token);
+        byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
+        await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
+            Protocol.ToJsonBytes(new TransferHeader { Type = "rediscover", SenderName = myName, SenderDeviceId = myDeviceId, RecipientDeviceId = targetDeviceId }), cts.Token);
+        byte status = await Protocol.ReadByteAsync(stream, cts.Token);
+        if (status != Protocol.StatusAccepted) throw TransferStatusException.From(status);
+        byte[] json = await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.MaxJsonLength, cts.Token);
+        var reply = Protocol.FromJsonBytes<TransferHeader>(json);
+        if (!string.Equals(reply.SenderDeviceId, targetDeviceId, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("상대 장치 ID가 일치하지 않습니다.");
+        return reply;
+    }
 
     /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름을 반환한다.
     /// ping 은 언제나 평문이며 상대의 공유 암호 설정과 무관하게 응답한다.</summary>
@@ -77,12 +104,14 @@ public static class TransferClient
 
     /// <summary>상대방에게 이 컴퓨터를 등록해 달라고 요청한다 (상호 자동 등록).
     /// 수동으로 컴퓨터를 추가할 때만 호출한다 — 자동 등록된 peer 에게 되보내면 등록 루프가 생긴다.</summary>
-    public static async Task RegisterAsync(
-        string host, int port, string myName, string? secret, int timeoutMs = ConnectTimeoutMs)
+    public static async Task<TransferHeader?> RegisterAsync(
+        string host, int port, string myName, string? secret, int timeoutMs = ConnectTimeoutMs,
+        string? senderDeviceId = null, string? recipientDeviceId = null, CancellationToken cancellationToken = default)
     {
         var key = KeyMaterial.FromSecret(secret);
 
-        using var cts = new CancellationTokenSource(timeoutMs);
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeoutMs);
         using var tcp = new TcpClient();
         await tcp.ConnectAsync(host, port, cts.Token);
         using var net = tcp.GetStream();
@@ -91,11 +120,24 @@ public static class TransferClient
         await Protocol.WriteMagicAsync(stream, Flags(key), cts.Token);
         byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
-            Protocol.ToJsonBytes(new TransferHeader { Type = "register", SenderName = myName }), cts.Token);
+            Protocol.ToJsonBytes(new TransferHeader { Type = "register", SenderName = myName,
+                SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
+                RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "" }), cts.Token);
 
         byte status = await Protocol.ReadByteAsync(stream, cts.Token);
         if (status != Protocol.StatusAccepted)
             throw TransferStatusException.From(status);
+        if (key == null) return null;
+        try
+        {
+            byte[] json = await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.MaxJsonLength, cts.Token);
+            var reply = Protocol.FromJsonBytes<TransferHeader>(json);
+            if (!string.IsNullOrWhiteSpace(recipientDeviceId) && !string.Equals(reply.SenderDeviceId, recipientDeviceId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("상대 장치 ID가 일치하지 않습니다.");
+            return reply;
+        }
+        catch (EndOfStreamException) { return null; }
+        catch (TimeoutException) { return null; }
     }
 
     public static async Task<int> SendAsync(
@@ -103,7 +145,9 @@ public static class TransferClient
         IReadOnlyList<string> paths,
         string? secret,
         IProgress<TransferProgress>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        string? senderDeviceId = null,
+        string? recipientDeviceId = null)
     {
         var files = CollectFiles(paths);
         if (files.Count == 0)
@@ -112,15 +156,16 @@ public static class TransferClient
             throw new InvalidOperationException($"한 번에 보낼 수 있는 파일은 {Protocol.MaxItemCount}개까지입니다.");
 
         long totalSize = files.Sum(f => f.Size);
+        var key = KeyMaterial.FromSecret(secret);
         var header = new TransferHeader
         {
             Type = "transfer",
             SenderName = senderName,
+            SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
+            RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "",
             TotalSize = totalSize,
             Items = files.Select(f => new TransferItem { Path = f.RelPath, Size = f.Size }).ToList(),
         };
-
-        var key = KeyMaterial.FromSecret(secret);
 
         using var tcp = new TcpClient();
         using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct))

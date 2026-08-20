@@ -14,6 +14,8 @@ public class TransferHeader
 {
     public string Type { get; set; } = "transfer";   // "transfer" | "ping" | "register"
     public string SenderName { get; set; } = "";
+    public string SenderDeviceId { get; set; } = "";
+    public string RecipientDeviceId { get; set; } = "";
     public long TotalSize { get; set; }
     public List<TransferItem> Items { get; set; } = new();
 }
@@ -47,6 +49,7 @@ public static class Protocol
     public const byte StatusNotRegistered = 4;    // 서버의 허용 목록에 없음
     public const byte StatusNoServerSecret = 5;   // 서버에 암호 미설정 (암호화 불가)
     public const byte StatusRefused = 6;          // 기타 거부 (디스크 부족 등)
+    public const byte StatusWrongDevice = 7;      // authenticated recipient mismatch
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {

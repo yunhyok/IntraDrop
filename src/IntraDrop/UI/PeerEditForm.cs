@@ -50,6 +50,8 @@ public class PeerEditForm : Form
 
         if (existing != null)
         {
+            ExistingHost = existing.Host;
+            ExistingDeviceId = existing.DeviceId;
             _nickname.Text = existing.Nickname;
             _host.Text = existing.Host;
         }
@@ -69,6 +71,9 @@ public class PeerEditForm : Form
         string nickname = _nickname.Text.Trim();
         if (nickname.Length == 0) nickname = host;
 
-        Result = new PeerInfo { Nickname = nickname, Host = host };
+        Result = new PeerInfo { Nickname = nickname, Host = host, DeviceId = ExistingDeviceId ?? "" };
     }
+
+    private string? ExistingHost { get; set; }
+    private string? ExistingDeviceId { get; set; }
 }

@@ -18,6 +18,9 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Restore and run deterministic tests
+        run: dotnet test tests/IntraDrop.Tests/IntraDrop.Tests.csproj -c Release
+
       - name: Publish Windows 10/11 build (net8, self-contained single file)
         run: >
           dotnet publish src/IntraDrop/IntraDrop.csproj

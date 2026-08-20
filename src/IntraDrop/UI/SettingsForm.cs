@@ -12,6 +12,9 @@ public class SettingsForm : Form
     private readonly NumericUpDown _port;
     private readonly TextBox _secret;
     private readonly CheckBox _acceptFromRegisteredOnly;
+    private readonly CheckBox _peerDiscovery;
+    private readonly bool _secretUnavailable;
+    private bool _clearSecret;
 
     private static readonly (string Label, int MB)[] ThresholdOptions =
     {
@@ -22,7 +25,7 @@ public class SettingsForm : Form
 
     public SettingsForm(AppSettings settings)
     {
-        Text = "IntraDrop 설정";
+        Text = AppInfo.DisplayName + " 설정";
         FormBorderStyle = FormBorderStyle.FixedDialog;
         StartPosition = FormStartPosition.CenterScreen;
         MaximizeBox = false;
@@ -108,13 +111,41 @@ public class SettingsForm : Form
             Margin = new Padding(3, 8, 3, 8),
         };
 
+        var secretState = SettingsStore.ReadSecret(settings);
+        _secretUnavailable = secretState.Availability == SettingsStore.SecretAvailability.Unavailable;
+        if (_secretUnavailable)
+            Shown += (_, _) => MessageBox.Show(this,
+                "저장된 공유 암호를 복호화할 수 없습니다. 빈 값으로 저장하면 기존 암호를 유지합니다. 새 암호를 입력하거나 ‘저장된 암호 지우기’를 눌러 명시적으로 교체/삭제하세요.",
+                "IntraDrop 보안 경고", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         _secret = new TextBox
         {
             Width = 280,
             Anchor = AnchorStyles.Left,
             Margin = new Padding(3, 6, 3, 6),
             UseSystemPasswordChar = true,
-            Text = SettingsStore.GetSecret(settings),
+            Text = secretState.IsAvailable ? secretState.Secret : "",
+        };
+        var clearSecret = UiKit.DialogButton("저장된 암호 지우기");
+        clearSecret.MinimumSize = new Size(0, 0);
+        clearSecret.Click += (_, _) =>
+        {
+            if (MessageBox.Show(this, "저장된 공유 암호를 지울까요? 암호화와 인증이 비활성화됩니다.", "IntraDrop", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) == DialogResult.Yes)
+            {
+                _clearSecret = true;
+                _secret.Clear();
+            }
+        };
+        var secretRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.LeftToRight, Anchor = AnchorStyles.Left };
+        secretRow.Controls.Add(_secret);
+        secretRow.Controls.Add(clearSecret);
+
+        _peerDiscovery = new CheckBox
+        {
+            Text = "같은 서브넷에서 인증된 피어 자동 검색",
+            AutoSize = true,
+            Checked = settings.EnablePeerDiscovery,
+            Anchor = AnchorStyles.Left,
+            Margin = new Padding(3, 8, 3, 8),
         };
 
         _acceptFromRegisteredOnly = new CheckBox
@@ -137,7 +168,7 @@ public class SettingsForm : Form
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
             ColumnCount = 2,
-            RowCount = 10,
+            RowCount = 12,
             Padding = new Padding(14),
         };
         int row = 0;
@@ -152,9 +183,12 @@ public class SettingsForm : Form
         layout.Controls.Add(portRow, 1, row++);
         layout.Controls.Add(_autoStart, 1, row++);
         layout.Controls.Add(UiKit.FieldLabel("공유 암호:"), 0, row);
-        layout.Controls.Add(_secret, 1, row++);
-        layout.Controls.Add(UiKit.HintLabel("모든 컴퓨터에 같은 암호를 설정하세요. 비워두면 인증·암호화 없음"), 1, row++);
+        if (_secretUnavailable)
+            layout.Controls.Add(UiKit.HintLabel("⚠ 저장된 공유 암호를 읽을 수 없습니다. 새 암호를 입력하거나 ‘저장된 암호 지우기’를 눌러 명시적으로 교체/삭제하세요."), 1, row++);
+        layout.Controls.Add(secretRow, 1, row++);
+        layout.Controls.Add(UiKit.HintLabel("모든 컴퓨터에 같은 유효한 공유 암호를 설정하세요. 입력을 비워 둔 채 저장하면 기존 암호를 유지합니다."), 1, row++);
         layout.Controls.Add(_acceptFromRegisteredOnly, 1, row++);
+        layout.Controls.Add(_peerDiscovery, 1, row++);
 
         var buttons = UiKit.ButtonRow(ok, cancel);
         layout.Controls.Add(buttons, 0, row);
@@ -207,7 +241,9 @@ public class SettingsForm : Form
         settings.ConfirmThresholdMB = ThresholdOptions[_threshold.SelectedIndex].MB;
         settings.AutoStart = _autoStart.Checked;
         settings.Port = (int)_port.Value;
-        SettingsStore.SetSecret(settings, _secret.Text);
+        if (_clearSecret || !string.IsNullOrWhiteSpace(_secret.Text))
+            SettingsStore.SetSecret(settings, _clearSecret ? "" : _secret.Text.Trim());
         settings.AcceptFromRegisteredOnly = _acceptFromRegisteredOnly.Checked;
+        settings.EnablePeerDiscovery = _peerDiscovery.Checked;
     }
 }

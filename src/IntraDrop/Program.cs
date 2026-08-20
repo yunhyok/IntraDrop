@@ -42,9 +42,18 @@ internal static class Program
         string[] paths = args.Skip(2).ToArray();
         try
         {
+            var secretState = SettingsStore.ReadSecret(settings);
+            if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
+                throw new InvalidOperationException("저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
+            var matches = settings.Peers
+                .Where(p => string.Equals((p.Host ?? "").Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase))
+                .Where(p => !string.IsNullOrWhiteSpace(p.DeviceId))
+                .ToList();
+            string? recipientId = matches.Count == 1 ? matches[0].DeviceId.Trim() : null;
             TransferClient.SendAsync(
                 host, settings.Port, settings.DeviceName, paths,
-                SettingsStore.GetSecret(settings), progress: null, CancellationToken.None)
+                secretState.Secret ?? "", progress: null, CancellationToken.None,
+                senderDeviceId: settings.DeviceId, recipientDeviceId: recipientId)
                 .GetAwaiter().GetResult();
             return 0;
         }
@@ -57,6 +66,7 @@ internal static class Program
                     ex.ToString());
             }
             catch { /* 로그 실패는 무시 */ }
+            try { Console.Error.WriteLine(ex.Message); } catch { }
             return 1;
         }
     }

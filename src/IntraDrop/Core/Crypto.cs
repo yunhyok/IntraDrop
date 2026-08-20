@@ -153,6 +153,8 @@ public static class Segment
 
     /// <summary>세그먼트 B = 파일 바이트 연속.</summary>
     public const byte IndexB = 1;
+    /// <summary>Identity rediscovery request/reply.</summary>
+    public const byte IndexC = 2;
 
     private const int BlockSize = 16;
 

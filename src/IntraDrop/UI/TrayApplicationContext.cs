@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using IntraDrop.Core;
 using IntraDrop.Models;
 
@@ -8,6 +9,8 @@ public class TrayApplicationContext : ApplicationContext
 {
     private readonly NotifyIcon _tray;
     private readonly TransferServer _server = new();
+    private readonly PeerDiscoveryService _discovery;
+    private readonly PeerRegistry _peerRegistry;
     private readonly SynchronizationContext _sync;
     private readonly Dictionary<string, DropForm> _dropForms = new(StringComparer.OrdinalIgnoreCase);
 
@@ -20,6 +23,10 @@ public class TrayApplicationContext : ApplicationContext
         SynchronizationContext.SetSynchronizationContext(_sync);
 
         _settings = SettingsStore.Load();
+        _peerRegistry = new PeerRegistry(_settings);
+        _discovery = new PeerDiscoveryService(() => _settings, () => SettingsStore.ReadSecret(_settings));
+        _discovery.CandidateReceived += OnDiscoveryCandidate;
+        _discovery.AuthenticatedCandidate = AuthenticateDiscoveryCandidateAsync;
         try { Directory.CreateDirectory(_settings.DownloadFolder); } catch { }
         SettingsStore.Save(_settings);   // 최초 실행 시 기본값 저장
 
@@ -28,7 +35,7 @@ public class TrayApplicationContext : ApplicationContext
         _tray = new NotifyIcon
         {
             Icon = LoadAppIcon(),
-            Text = "IntraDrop - 인트라넷 파일 전송",
+            Text = AppInfo.DisplayName + " - 인트라넷 파일 전송",
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
@@ -36,6 +43,7 @@ public class TrayApplicationContext : ApplicationContext
         _tray.BalloonTipClicked += (_, _) => OpenDownloadFolder();
 
         _server.GetSettings = () => _settings;
+        _server.PeerRegistry = _peerRegistry;
         _server.ConfirmRequest = OnConfirmRequest;
         _server.SavePeers = SavePeers;
         _server.TransferCompleted += OnTransferCompleted;
@@ -43,9 +51,12 @@ public class TrayApplicationContext : ApplicationContext
         _server.TransferRejected += OnTransferRejected;
         _server.PeerAutoRegistered += OnPeerAutoRegistered;
         StartServer();
+        _discovery.Start();
+        _ = PairLegacyPeersAsync();
     }
 
     public AppSettings Settings => _settings;
+    public PeerRegistry PeerRegistry => _peerRegistry;
 
     private void StartServer()
     {
@@ -58,6 +69,49 @@ public class TrayApplicationContext : ApplicationContext
             _tray.ShowBalloonTip(5000, "IntraDrop 수신 시작 실패",
                 $"포트 {_settings.Port} 을(를) 열 수 없습니다.\n{ex.Message}\n설정에서 포트를 변경해 보세요.",
                 ToolTipIcon.Error);
+        }
+    }
+
+    private void OnDiscoveryCandidate(IPAddress source, DiscoveryPacket packet)
+    {
+        // UDP is only a candidate hint; refresh only after authenticated TCP verification.
+    }
+
+    private async Task AuthenticateDiscoveryCandidateAsync(IPAddress source, DiscoveryPacket packet, CancellationToken lifecycleToken)
+    {
+        if (lifecycleToken.IsCancellationRequested || !_settings.EnablePeerDiscovery) return;
+        var sec = SettingsStore.ReadSecret(_settings); if (!sec.IsAvailable) return;
+        string usedSecret = sec.Secret!;
+        var key = KeyMaterial.FromSecret(sec.Secret!); if (key == null) return;
+        string? targetId = _peerRegistry.FindDeviceIdByTag(key, packet.DeviceTag);
+        if (targetId == null || string.Equals(targetId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase)) return;
+        var reply = await TransferClient.RediscoverAsync(source.ToString(), packet.TcpPort, _settings.DeviceName, _settings.DeviceId, targetId, usedSecret, cancellationToken: lifecycleToken).ConfigureAwait(false);
+        var current = SettingsStore.ReadSecret(_settings);
+        if (lifecycleToken.IsCancellationRequested || !_settings.EnablePeerDiscovery || !current.IsAvailable || !string.Equals(current.Secret, usedSecret, StringComparison.Ordinal)) return;
+        if (string.Equals(reply.SenderDeviceId, targetId, StringComparison.OrdinalIgnoreCase) && _peerRegistry.TryUpdateHost(targetId, source.ToString()))
+        {
+            SettingsStore.Save(_settings);
+            _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
+        }
+    }
+
+    private async Task PairLegacyPeersAsync()
+    {
+        var sec = SettingsStore.ReadSecret(_settings); if (!sec.IsAvailable) return;
+        foreach (var peer in _peerRegistry.Snapshot().Where(p => string.IsNullOrWhiteSpace(p.DeviceId)))
+        {
+            if (!IPAddress.TryParse(peer.Host, out _)) continue;
+            try
+            {
+                var reply = await TransferClient.RegisterAsync(peer.Host, _settings.Port, _settings.DeviceName, sec.Secret,
+                    senderDeviceId: _settings.DeviceId, recipientDeviceId: "").ConfigureAwait(false);
+                if (reply != null && !string.IsNullOrWhiteSpace(reply.SenderDeviceId))
+                {
+                    if (_peerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName))
+                        _peerRegistry.Save();
+                }
+            }
+            catch { }
         }
     }
 
@@ -160,14 +214,15 @@ public class TrayApplicationContext : ApplicationContext
 
     public void OpenDropWindow(PeerInfo peer)
     {
-        if (_dropForms.TryGetValue(peer.Host, out var existing) && !existing.IsDisposed)
+        string key = string.IsNullOrWhiteSpace(peer.DeviceId) ? "host:" + peer.Host.Trim().ToUpperInvariant() : "id:" + peer.DeviceId.Trim().ToUpperInvariant();
+        if (_dropForms.TryGetValue(key, out var existing) && !existing.IsDisposed)
         {
             existing.Activate();
             return;
         }
         var form = new DropForm(peer, () => _settings);
-        _dropForms[peer.Host] = form;
-        form.FormClosed += (_, _) => _dropForms.Remove(peer.Host);
+        _dropForms[key] = form;
+        form.FormClosed += (_, _) => _dropForms.Remove(key);
         form.Show();
     }
 
@@ -177,6 +232,9 @@ public class TrayApplicationContext : ApplicationContext
         if (dlg.ShowDialog() != DialogResult.OK) return;
 
         int oldPort = _settings.Port;
+        bool oldDiscovery = _settings.EnablePeerDiscovery;
+        var oldSecretState = SettingsStore.ReadSecret(_settings);
+        string oldSecret = oldSecretState.IsAvailable ? oldSecretState.Secret! : "";
         dlg.ApplyTo(_settings);
         SettingsStore.Save(_settings);
 
@@ -185,11 +243,16 @@ public class TrayApplicationContext : ApplicationContext
 
         if (_settings.Port != oldPort)
             StartServer();
+        var newSecretState = SettingsStore.ReadSecret(_settings);
+        if (_settings.Port != oldPort || oldDiscovery != _settings.EnablePeerDiscovery || oldSecret != (newSecretState.IsAvailable ? newSecretState.Secret! : ""))
+        { _discovery.Stop(); _discovery.Start(); }
+        if (!oldSecretState.IsAvailable && newSecretState.IsAvailable)
+            _ = PairLegacyPeersAsync();
     }
 
     public void SavePeers()
     {
-        SettingsStore.Save(_settings);
+        _peerRegistry.Save();
     }
 
     private void OpenDownloadFolder()
@@ -211,12 +274,13 @@ public class TrayApplicationContext : ApplicationContext
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
             "· 컴퓨터 더블클릭: 보내기 창 열기\n" +
             "· 보내기 창에 파일/폴더를 끌어다 놓으면 전송됩니다.",
-            "IntraDrop 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            AppInfo.DisplayName + " 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void ExitApp()
     {
         _tray.Visible = false;
+        _discovery.Stop();
         _server.Stop();
         foreach (var f in _dropForms.Values.ToList())
         {

@@ -18,7 +18,7 @@ public class DropForm : Form
         _peer = peer;
         _getSettings = getSettings;
 
-        Text = $"{peer.Nickname} 에게 보내기";
+        Text = $"{AppInfo.DisplayName} - {peer.Nickname} 에게 보내기";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         TopMost = true;
         StartPosition = FormStartPosition.Manual;
@@ -111,10 +111,13 @@ public class DropForm : Form
             _status.ForeColor = SystemColors.ControlText;
             _status.Text = "연결 중...";
 
-            string secret = SettingsStore.GetSecret(settings);
+            var secretState = SettingsStore.ReadSecret(settings);
+            if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
+                throw new InvalidOperationException("저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
+            string secret = secretState.Secret ?? "";
             int count = await Task.Run(() => TransferClient.SendAsync(
                 _peer.Host, settings.Port, settings.DeviceName, paths,
-                secret, progress, CancellationToken.None));
+                secret, progress, CancellationToken.None, settings.DeviceId, _peer.DeviceId));
 
             _progress.Value = 1000;
             _status.ForeColor = Color.DarkGreen;

@@ -13,7 +13,7 @@ public class PeerListForm : Form
     {
         _ctx = ctx;
 
-        Text = "IntraDrop - 컴퓨터 목록";
+        Text = AppInfo.DisplayName + " - 컴퓨터 목록";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(560, 380);
         MinimumSize = new Size(460, 300);
@@ -94,7 +94,7 @@ public class PeerListForm : Form
     {
         _list.BeginUpdate();
         _list.Items.Clear();
-        foreach (var peer in _ctx.Settings.Peers)
+        foreach (var peer in _ctx.PeerRegistry.SnapshotReferences())
         {
             var item = new ListViewItem(new[] { peer.Nickname, peer.Host, "확인 중..." })
             {
@@ -114,13 +114,17 @@ public class PeerListForm : Form
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
         var peer = dlg.Result!;
-        if (_ctx.Settings.Peers.Any(p => p.Host.Equals(peer.Host, StringComparison.OrdinalIgnoreCase)))
+        if (_ctx.PeerRegistry.Snapshot().Any(p => p.Host.Equals(peer.Host, StringComparison.OrdinalIgnoreCase)))
         {
             MessageBox.Show(this, "이미 등록된 주소입니다.", "IntraDrop",
                 MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        _ctx.Settings.Peers.Add(peer);
+        if (!_ctx.PeerRegistry.Add(peer))
+        {
+            MessageBox.Show(this, "이미 등록된 주소입니다.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         _ctx.SavePeers();
         ReloadList();
         RefreshStatusAsync();
@@ -131,10 +135,24 @@ public class PeerListForm : Form
     private async void RegisterWithPeerAsync(PeerInfo peer)
     {
         var settings = _ctx.Settings;
-        string secret = SettingsStore.GetSecret(settings);
+        var secretState = SettingsStore.ReadSecret(settings);
+        if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
+        {
+            MessageBox.Show(this, "저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지운 뒤 다시 시도하세요.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        string secret = secretState.Secret ?? "";
+        string expectedId = peer.DeviceId?.Trim() ?? "";
+        string savedHost = peer.Host.Trim();
         try
         {
-            await TransferClient.RegisterAsync(peer.Host, settings.Port, settings.DeviceName, secret);
+            var reply = await TransferClient.RegisterAsync(peer.Host, settings.Port, settings.DeviceName, secret,
+                senderDeviceId: settings.DeviceId, recipientDeviceId: string.IsNullOrWhiteSpace(expectedId) ? null : expectedId);
+            if (!string.Equals(peer.Host.Trim(), savedHost, StringComparison.OrdinalIgnoreCase)) return;
+            if (reply != null && !string.IsNullOrWhiteSpace(reply.SenderDeviceId) && string.IsNullOrWhiteSpace(expectedId))
+            {
+                if (_ctx.PeerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName)) _ctx.SavePeers();
+            }
         }
         catch
         {
@@ -163,11 +181,47 @@ public class PeerListForm : Form
         using var dlg = new PeerEditForm(peer);
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
-        peer.Nickname = dlg.Result!.Nickname;
-        peer.Host = dlg.Result!.Host;
+        bool hostChanged = !string.Equals(peer.Host?.Trim(), dlg.Result!.Host.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (hostChanged && !string.IsNullOrWhiteSpace(peer.DeviceId))
+        {
+            RebindPairedPeerAsync(peer, dlg.Result!.Nickname, dlg.Result!.Host.Trim());
+            return;
+        }
+        if (!_ctx.PeerRegistry.Update(peer, dlg.Result!.Nickname, dlg.Result!.Host))
+        {
+            MessageBox.Show(this, "주소가 이미 다른 컴퓨터에 등록되어 있습니다.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         _ctx.SavePeers();
         ReloadList();
         RefreshStatusAsync();
+        if (hostChanged) RegisterWithPeerAsync(peer);
+    }
+
+    private async void RebindPairedPeerAsync(PeerInfo peer, string nickname, string newHost)
+    {
+        var settings = _ctx.Settings;
+        var state = SettingsStore.ReadSecret(settings);
+        if (!state.IsAvailable)
+        {
+            MessageBox.Show(this, "기존 장치의 주소를 바꾸려면 복호화 가능한 공유 암호가 필요합니다.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+        string oldHost = peer.Host, expectedId = peer.DeviceId;
+        try
+        {
+            var reply = await TransferClient.RegisterAsync(newHost, settings.Port, settings.DeviceName, state.Secret,
+                senderDeviceId: settings.DeviceId, recipientDeviceId: expectedId);
+            if (reply == null || !string.Equals(reply.SenderDeviceId, expectedId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("상대 장치 ID 검증에 실패했습니다.");
+            if (!_ctx.PeerRegistry.TryVerifiedHostUpdate(expectedId, oldHost, newHost, nickname))
+                throw new InvalidOperationException("주소가 다른 컴퓨터에 등록되었거나 목록이 변경되었습니다.");
+            _ctx.SavePeers(); ReloadList(); RefreshStatusAsync();
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, $"주소를 인증하지 못했습니다. 기존 주소와 장치 ID를 유지합니다.\n{ex.Message}", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     private void DeletePeer()
@@ -179,7 +233,7 @@ public class PeerListForm : Form
                 "IntraDrop", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
             return;
 
-        _ctx.Settings.Peers.Remove(peer);
+        _ctx.PeerRegistry.Remove(peer);
         _ctx.SavePeers();
         ReloadList();
     }
