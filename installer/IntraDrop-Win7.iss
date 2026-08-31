@@ -4,7 +4,7 @@
 ; 32비트/64비트 Windows 모두 지원 (AnyCPU)
 
 #define MyAppName "IntraDrop"
-#define MyAppVersion "1.4.0"
+#define MyAppVersion "1.5.0"
 #define MyAppPublisher "yunhyok"
 #define MyAppURL "https://github.com/yunhyok/IntraDrop"
 #define MyAppExeName "IntraDrop.exe"
@@ -53,6 +53,8 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; \
     ValueType: string; ValueName: "IntraDrop"; ValueData: """{app}\{#MyAppExeName}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
+
+Root: HKCU; Subkey: "Software\Classes\AllFilesystemObjects\shell\IntraDrop"; Flags: uninsdeletekey
 
 [Run]
 ; runasoriginaluser: 관리자 권한으로 실행되면 일반 탐색기에서의 드래그앤드롭이 차단(UIPI)됨
