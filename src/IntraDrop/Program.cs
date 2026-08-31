@@ -17,6 +17,11 @@ internal static class Program
             Environment.Exit(RunHeadlessSend(args));
             return;
         }
+        if (args.Length >= 3 && args[0] == "--send-token")
+        {
+            Environment.Exit(RunContextMenuSend(args));
+            return;
+        }
 
         using var mutex = new Mutex(true, MutexName, out bool createdNew);
         if (!createdNew)
@@ -69,5 +74,35 @@ internal static class Program
             try { Console.Error.WriteLine(ex.Message); } catch { }
             return 1;
         }
+    }
+
+    private static int RunContextMenuSend(string[] args)
+    {
+        var settings = SettingsStore.Load();
+        if (!ExplorerContextMenu.TryResolveToken(settings, args[1], out var peer))
+            return ContextMenuError("IntraDrop 대상 컴퓨터를 확인할 수 없습니다. 컴퓨터 목록을 새로 고친 뒤 다시 시도하세요.");
+        try
+        {
+            var secretState = SettingsStore.ReadSecret(settings);
+            if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
+                throw new InvalidOperationException("저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
+            string? recipientId = Guid.TryParse(peer.DeviceId?.Trim(), out var id) ? id.ToString("N") : null;
+            TransferClient.SendAsync(
+                peer.Host.Trim(), settings.Port, settings.DeviceName, args.Skip(2).ToArray(),
+                secretState.Secret ?? "", progress: null, CancellationToken.None,
+                senderDeviceId: settings.DeviceId, recipientDeviceId: recipientId)
+                .GetAwaiter().GetResult();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            return ContextMenuError($"파일을 IntraDrop으로 보내지 못했습니다.\n{ex.Message}");
+        }
+    }
+
+    private static int ContextMenuError(string message)
+    {
+        try { MessageBox.Show(message, "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning); } catch { }
+        return 1;
     }
 }

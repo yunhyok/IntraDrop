@@ -48,8 +48,9 @@ public class TransferServer
     {
         try
         {
-            if (_peerRegistry != null) _peerRegistry.Save();
-            else SavePeers?.Invoke();
+            // UI callback owns persistence so registry snapshots stay synchronized.
+            if (SavePeers != null) SavePeers();
+            else _peerRegistry?.Save();
         }
         catch { }
     }

@@ -166,6 +166,51 @@ public sealed class ProtocolAndRegistryTests
     }
 
     [Fact]
+    public void ExplorerTokens_AreStableOpaqueAndNormalizeDeviceIds()
+    {
+        var peer = new PeerInfo { DeviceId = "{B3F0B2C2-2D2C-4D2D-9D2D-1234567890AB}", Host = "10.0.0.2", Nickname = "Office" };
+        var first = ExplorerContextMenu.TokenFor(peer);
+        peer.Host = "untrusted host\"\r\n";
+        Assert.Equal("id-b3f0b2c22d2c4d2d9d2d1234567890ab", first);
+        Assert.NotNull(first);
+        Assert.DoesNotContain("Office", first);
+        Assert.DoesNotContain("untrusted", first);
+    }
+
+    [Fact]
+    public void ExplorerLegacyTokens_FailClosedOnAmbiguousSnapshot()
+    {
+        var settings = new AppSettings();
+        settings.Peers.Add(new PeerInfo { Host = "legacy-host", Nickname = "A" });
+        settings.Peers.Add(new PeerInfo { Host = " LEGACY-HOST ", Nickname = "B" });
+        var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\Program Files\IntraDrop\IntraDrop.exe");
+        Assert.Empty(snapshot.Entries);
+        Assert.False(ExplorerContextMenu.TryResolveToken(settings, ExplorerContextMenu.TokenFor(settings.Peers[0])!, out _));
+    }
+
+    [Fact]
+    public void ExplorerCommand_QuotesExeAndPreservesMultiSelectExpansion()
+    {
+        string command = ExplorerContextMenu.BuildCommand(@"C:\Program Files\Intra Drop\IntraDrop.exe", "id-abc123");
+        Assert.StartsWith("\"C:\\Program Files\\Intra Drop\\IntraDrop.exe\" --send-token id-abc123 ", command);
+        Assert.EndsWith("%*", command);
+    }
+
+    [Fact]
+    public void ExplorerSnapshot_ContainsStaticCascadeStructureAndSafeEntries()
+    {
+        var settings = new AppSettings();
+        settings.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "192.168.1.5", Nickname = "Alice" });
+        var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\IntraDrop.exe");
+        Assert.Single(snapshot.Entries);
+        Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ParentSubKey);
+        Assert.Equal(@"AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ExtendedSubCommandsKey);
+        Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop\Shell", ExplorerContextMenu.ChildShellSubKey);
+        Assert.Equal("Player", ExplorerContextMenu.MultiSelectModel);
+        Assert.DoesNotContain("192.168.1.5", snapshot.Entries[0].Command);
+    }
+
+    [Fact]
     public async Task SecuredRegisterAndRediscoverValidateMutualIdentityAndRecipient()
     {
         string localId = Guid.NewGuid().ToString(), remoteId = Guid.NewGuid().ToString();
