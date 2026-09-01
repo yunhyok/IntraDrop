@@ -189,11 +189,11 @@ public sealed class ProtocolAndRegistryTests
     }
 
     [Fact]
-    public void ExplorerCommand_QuotesExeAndPreservesMultiSelectExpansion()
+    public void ExplorerCommand_UsesShellItemPlaceholderAndDocumentSelection()
     {
         string command = ExplorerContextMenu.BuildCommand(@"C:\Program Files\Intra Drop\IntraDrop.exe", "id-abc123");
-        Assert.StartsWith("\"C:\\Program Files\\Intra Drop\\IntraDrop.exe\" --send-token id-abc123 ", command);
-        Assert.EndsWith("%*", command);
+        Assert.Equal("\"C:\\Program Files\\Intra Drop\\IntraDrop.exe\" --send-token id-abc123 \"%1\"", command);
+        Assert.Equal("Document", ExplorerContextMenu.MultiSelectModel);
     }
 
     [Fact]
@@ -206,7 +206,7 @@ public sealed class ProtocolAndRegistryTests
         Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ParentSubKey);
         Assert.Equal(@"AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ExtendedSubCommandsKey);
         Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop\Shell", ExplorerContextMenu.ChildShellSubKey);
-        Assert.Equal("Player", ExplorerContextMenu.MultiSelectModel);
+        Assert.Equal("Document", ExplorerContextMenu.MultiSelectModel);
         Assert.DoesNotContain("192.168.1.5", snapshot.Entries[0].Command);
     }
 
