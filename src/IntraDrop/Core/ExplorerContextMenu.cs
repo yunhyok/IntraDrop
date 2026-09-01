@@ -11,7 +11,7 @@ public static class ExplorerContextMenu
     public const string ParentSubKey = @"Software\Classes\AllFilesystemObjects\shell\IntraDrop";
     public const string ExtendedSubCommandsKey = @"AllFilesystemObjects\shell\IntraDrop";
     public const string ChildShellSubKey = ParentSubKey + @"\Shell";
-    public const string MultiSelectModel = "Player";
+    public const string MultiSelectModel = "Document";
 
     public sealed class Entry
     {
@@ -73,7 +73,7 @@ public static class ExplorerContextMenu
     }
 
     public static string BuildCommand(string executablePath, string token) =>
-        QuoteWindowsArg(executablePath) + " --send-token " + token + " %*";
+        QuoteWindowsArg(executablePath) + " --send-token " + token + " \"%1\"";
 
     public static string? TokenFor(PeerInfo peer)
     {
