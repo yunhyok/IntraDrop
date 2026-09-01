@@ -8,6 +8,20 @@ namespace IntraDrop.Tests;
 
 public sealed class ProtocolAndRegistryTests
 {
+    [Fact]
+    public void HelpGuide_IsBundledWithProgramScreenshots()
+    {
+        string help = Path.Combine(AppContext.BaseDirectory, "Help", "index.html");
+        Assert.True(File.Exists(help), help);
+        string html = File.ReadAllText(help);
+        Assert.Contains("외부 컴퓨터 등록", html);
+        Assert.Contains("images/02-add-computer.png", html);
+        Assert.Contains("images/03-send-window.png", html);
+        Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Help", "images", "02-add-computer.png")));
+        Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Help", "images", "03-send-window.png")));
+        Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Help", "images", "04-settings.png")));
+    }
+
     private static KeyMaterial Key => KeyMaterial.FromSecret("test-shared-secret")!;
 
     [Fact]

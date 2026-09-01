@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>IntraDrop 1.6.0 도움말</title>
+  <style>
+    :root { color-scheme: light; --blue:#1769aa; --ink:#20242a; --muted:#5f6b76; --line:#d9e0e7; --soft:#f4f8fb; --warn:#fff5d6; }
+    * { box-sizing:border-box; }
+    body { margin:0; font:16px/1.65 "Segoe UI","Malgun Gothic",sans-serif; color:var(--ink); background:#eef3f7; }
+    header { background:linear-gradient(135deg,#0b4f85,#2787c4); color:white; padding:38px 20px; }
+    header div, main { max-width:980px; margin:auto; }
+    h1 { margin:0 0 8px; font-size:32px; } h2 { color:#0b4f85; margin-top:0; } h3 { margin-bottom:6px; }
+    header p { margin:0; opacity:.92; }
+    main { background:white; padding:30px 36px 56px; box-shadow:0 2px 14px #16324a1a; }
+    nav { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:28px; }
+    nav a { color:var(--blue); text-decoration:none; border:1px solid #b9d0e2; border-radius:18px; padding:5px 12px; }
+    section { border-top:1px solid var(--line); padding-top:28px; margin-top:32px; }
+    .step { display:grid; grid-template-columns:44px 1fr; gap:12px; margin:18px 0; }
+    .num { width:36px; height:36px; border-radius:50%; background:var(--blue); color:white; display:grid; place-items:center; font-weight:700; }
+    .shot { margin:18px 0 8px; border:1px solid #aeb9c3; border-radius:8px; overflow:hidden; background:var(--soft); }
+    .shot img { display:block; max-width:100%; height:auto; margin:auto; }
+    .caption { margin:7px 12px 10px; color:var(--muted); font-size:14px; }
+    .note,.warning { border-left:5px solid var(--blue); padding:12px 15px; margin:18px 0; background:var(--soft); }
+    .warning { border-color:#c68a00; background:var(--warn); }
+    code { background:#edf1f4; padding:2px 5px; border-radius:4px; }
+    table { width:100%; border-collapse:collapse; } th,td { border:1px solid var(--line); padding:10px; text-align:left; vertical-align:top; } th { background:var(--soft); }
+    footer { margin-top:42px; color:var(--muted); font-size:14px; }
+    @media (max-width:700px) { main { padding:24px 18px 40px; } h1 { font-size:27px; } }
+  </style>
+</head>
+<body>
+<header><div><h1>IntraDrop 1.6.0 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
+<main>
+  <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
+
+  <section id="prepare"><h2>1. 시작 전 준비</h2>
+    <div class="step"><div class="num">1</div><div><h3>두 컴퓨터에 IntraDrop 설치</h3><p>보내는 컴퓨터와 받는 컴퓨터 모두에 같은 최신 버전을 설치하고 IntraDrop을 실행합니다.</p></div></div>
+    <div class="step"><div class="num">2</div><div><h3>상대 컴퓨터의 주소 확인</h3><p>등록할 상대 컴퓨터에서 IPv4 주소 또는 컴퓨터 이름을 확인합니다. 예: <code>192.168.0.25</code>. 두 컴퓨터가 같은 사내망·가정망·연결 가능한 VPN에 있어야 합니다.</p></div></div>
+    <div class="step"><div class="num">3</div><div><h3>포트와 공유 암호 맞추기</h3><p>모든 컴퓨터에서 포트가 같아야 합니다(기본값 <code>45671</code>). 공유 암호를 사용할 경우 모든 컴퓨터에 같은 암호를 설정합니다.</p></div></div>
+    <div class="warning"><strong>Windows 방화벽:</strong> 첫 실행 시 허용 창이 나타나면 개인 네트워크에서 IntraDrop 통신을 허용하세요.</div>
+  </section>
+
+  <section id="register"><h2>2. 외부 컴퓨터 등록</h2>
+    <div class="step"><div class="num">1</div><div><p>작업 표시줄 알림 영역의 IntraDrop 아이콘을 <strong>더블클릭</strong>해 컴퓨터 목록을 열고 <strong>추가</strong>를 누릅니다.</p></div></div>
+    <div class="step"><div class="num">2</div><div><p><strong>별명</strong>에는 알아보기 쉬운 이름을, <strong>주소(IP)</strong>에는 상대 컴퓨터의 IPv4 주소나 컴퓨터 이름을 입력한 뒤 <strong>확인</strong>을 누릅니다.</p></div></div>
+    <figure class="shot"><img src="images/02-add-computer.png" alt="IntraDrop 컴퓨터 등록 창"><figcaption class="caption">컴퓨터 등록 창: 별명과 상대 컴퓨터 주소를 입력합니다.</figcaption></figure>
+    <div class="note">상대 컴퓨터의 IntraDrop이 실행 중이고 포트·공유 암호가 맞으면 상대 목록에도 내 컴퓨터가 자동 등록됩니다. 처음에는 상태가 <strong>확인 중</strong>으로 보였다가 온라인 또는 오프라인으로 바뀝니다.</div>
+  </section>
+
+  <section id="send"><h2>3. 파일 또는 폴더 보내기</h2>
+    <h3>방법 A — 트레이 목록에서 보내기</h3><ol><li>컴퓨터 목록에서 대상을 더블클릭하거나 선택 후 <strong>보내기 창</strong>을 누릅니다.</li><li>파일 또는 폴더를 보내기 창의 점선 영역으로 끌어다 놓습니다.</li><li>상태 줄에서 진행률과 완료 여부를 확인합니다.</li></ol>
+    <figure class="shot"><img src="images/03-send-window.png" alt="IntraDrop 파일 보내기 창"><figcaption class="caption">보내기 창: 파일과 폴더를 점선 영역에 끌어다 놓습니다.</figcaption></figure>
+    <h3>방법 B — 탐색기 우클릭 메뉴</h3><ol><li>탐색기에서 파일 또는 폴더를 선택하고 우클릭합니다.</li><li><strong>IntraDrop</strong> → 대상 컴퓨터를 선택합니다.</li><li>Windows 11에서는 먼저 <strong>추가 옵션 표시</strong>를 선택해야 합니다.</li></ol>
+    <div class="note">받은 파일은 받는 컴퓨터의 설정에 지정된 다운로드 폴더에 저장됩니다. 큰 전송은 받는 쪽에서 수락을 요구할 수 있습니다.</div>
+  </section>
+
+  <section id="settings"><h2>4. 설정과 보안</h2>
+    <p>트레이 아이콘 우클릭 → <strong>설정</strong>에서 장치 이름, 다운로드 폴더, 수락 확인 크기, 포트, 공유 암호와 수신 허용 범위를 관리합니다.</p>
+    <figure class="shot"><img src="images/04-settings.png" alt="IntraDrop 설정 창"><figcaption class="caption">설정 창: 모든 컴퓨터의 포트와 공유 암호를 동일하게 맞춥니다.</figcaption></figure>
+    <table><thead><tr><th>설정</th><th>권장 사용법</th></tr></thead><tbody>
+      <tr><td>공유 암호</td><td>파일을 주고받는 모든 컴퓨터에 동일한 유효한 암호를 설정합니다. 인증과 AES-256 암호화가 활성화됩니다.</td></tr>
+      <tr><td>등록된 컴퓨터에서만 파일 받기</td><td>모르는 장치의 전송을 거부하려면 켭니다.</td></tr>
+      <tr><td>인증된 피어 자동 검색</td><td>DHCP로 IP가 바뀌는 환경에서 켭니다. 저장 주소는 인증된 신원 확인 후에만 갱신됩니다.</td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="trouble"><h2>5. 연결되지 않을 때</h2><ul>
+    <li>양쪽 컴퓨터에서 IntraDrop이 실행 중인지 확인합니다.</li><li>등록 주소, 포트, 공유 암호가 서로 맞는지 확인합니다.</li><li>컴퓨터 목록의 <strong>새로고침</strong>을 누릅니다.</li><li>Windows 방화벽에서 IntraDrop의 개인 네트워크 통신이 허용됐는지 확인합니다.</li><li>VLAN, 게스트 Wi-Fi, Wi-Fi 클라이언트 격리 환경에서는 장치 간 통신이 차단될 수 있습니다.</li>
+  </ul></section>
+  <footer>IntraDrop 1.6.0 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
+</main>
+</body>
+</html>
