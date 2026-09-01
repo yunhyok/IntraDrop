@@ -124,6 +124,7 @@ public class TrayApplicationContext : ApplicationContext
         menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
         menu.Items.Add("다운로드 폴더 열기(&D)", null, (_, _) => OpenDownloadFolder());
         menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("도움말(&H)", null, (_, _) => OpenHelp());
         menu.Items.Add("IntraDrop 정보(&A)", null, (_, _) => ShowAbout());
         menu.Items.Add("종료(&X)", null, (_, _) => ExitApp());
         return menu;
@@ -269,6 +270,21 @@ public class TrayApplicationContext : ApplicationContext
         catch { }
     }
 
+    private void OpenHelp()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "Help", "index.html");
+        try
+        {
+            if (!File.Exists(path)) throw new FileNotFoundException("도움말 파일을 찾을 수 없습니다.", path);
+            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"도움말을 열 수 없습니다.\n{ex.Message}", AppInfo.DisplayName,
+                MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+    }
+
     private void ShowAbout()
     {
         string version = Application.ProductVersion.Split('+')[0];
@@ -276,6 +292,7 @@ public class TrayApplicationContext : ApplicationContext
             $"IntraDrop {version}\n\n인트라넷 컴퓨터 간 파일 전송 트레이 프로그램\n" +
             "https://github.com/yunhyok/IntraDrop\n\n" +
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
+            "· 트레이 아이콘 우클릭 → 도움말: 그림으로 보는 사용법\n" +
             "· 컴퓨터 더블클릭: 보내기 창 열기\n" +
             "· 보내기 창에 파일/폴더를 끌어다 놓으면 전송됩니다.",
             AppInfo.DisplayName + " 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
