@@ -30,8 +30,8 @@
 
 | Windows 버전 | 인스톨러 | 비고 |
 |---|---|---|
-| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.6.1.exe` | .NET 런타임 포함, 별도 설치 불필요 |
-| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.6.1-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.6.2.exe` | .NET 런타임 포함, 별도 설치 불필요 |
+| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.6.2-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
 
 서로 다른 버전의 Windows끼리도 정상적으로 파일을 주고받을 수 있습니다 (동일 프로토콜).
 

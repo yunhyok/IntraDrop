@@ -9,8 +9,9 @@ namespace IntraDrop.Core;
 public static class ExplorerContextMenu
 {
     public const string ParentSubKey = @"Software\Classes\AllFilesystemObjects\shell\IntraDrop";
-    public const string ExtendedSubCommandsKey = @"AllFilesystemObjects\shell\IntraDrop";
-    public const string ChildShellSubKey = ParentSubKey + @"\Shell";
+    public const string ExtendedSubCommandsKey = @"IntraDrop.ContextMenu";
+    public const string ChildShellSubKey = @"Software\Classes\IntraDrop.ContextMenu\shell";
+    private const string LegacyChildShellSubKey = ParentSubKey + @"\Shell";
     public const string MultiSelectModel = "Document";
 
     public sealed class Entry
@@ -92,10 +93,12 @@ public static class ExplorerContextMenu
         {
             executablePath ??= System.Windows.Forms.Application.ExecutablePath;
             var snapshot = BuildSnapshot(settings, executablePath);
+            try { Registry.CurrentUser.DeleteSubKeyTree(LegacyChildShellSubKey, false); } catch { }
             using var parent = Registry.CurrentUser.CreateSubKey(ParentSubKey);
             if (parent != null)
             {
                 parent.SetValue("MUIVerb", "IntraDrop", RegistryValueKind.String);
+                parent.SetValue("Icon", executablePath + ",0", RegistryValueKind.String);
                 parent.SetValue("ExtendedSubCommandsKey", ExtendedSubCommandsKey, RegistryValueKind.String);
                 parent.SetValue("MultiSelectModel", MultiSelectModel, RegistryValueKind.String);
             }

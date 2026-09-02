@@ -218,8 +218,9 @@ public sealed class ProtocolAndRegistryTests
         var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\IntraDrop.exe");
         Assert.Single(snapshot.Entries);
         Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ParentSubKey);
-        Assert.Equal(@"AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ExtendedSubCommandsKey);
-        Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop\Shell", ExplorerContextMenu.ChildShellSubKey);
+        Assert.Equal(@"IntraDrop.ContextMenu", ExplorerContextMenu.ExtendedSubCommandsKey);
+        Assert.Equal(@"Software\Classes\IntraDrop.ContextMenu\shell", ExplorerContextMenu.ChildShellSubKey);
+        Assert.DoesNotContain(ExplorerContextMenu.ExtendedSubCommandsKey, ExplorerContextMenu.ParentSubKey);
         Assert.Equal("Document", ExplorerContextMenu.MultiSelectModel);
         Assert.DoesNotContain("192.168.1.5", snapshot.Entries[0].Command);
     }
