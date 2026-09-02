@@ -11,7 +11,7 @@
     <RootNamespace>IntraDrop</RootNamespace>
     <AssemblyName>IntraDrop</AssemblyName>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.6.0</Version>
+    <Version>1.6.1</Version>
     <Company>yunhyok</Company>
     <Product>IntraDrop</Product>
     <Description>인트라넷 파일 전송 트레이 프로그램</Description>

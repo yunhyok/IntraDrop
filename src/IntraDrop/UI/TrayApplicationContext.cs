@@ -276,7 +276,21 @@ public class TrayApplicationContext : ApplicationContext
         try
         {
             if (!File.Exists(path)) throw new FileNotFoundException("도움말 파일을 찾을 수 없습니다.", path);
-            Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            using var help = new Form
+            {
+                Text = AppInfo.DisplayName + " 도움말",
+                Icon = LoadAppIcon(),
+                StartPosition = FormStartPosition.CenterScreen,
+                Width = 1100,
+                Height = 760,
+            };
+            help.Controls.Add(new WebBrowser
+            {
+                Dock = DockStyle.Fill,
+                ScriptErrorsSuppressed = true,
+                Url = new Uri(path),
+            });
+            help.ShowDialog();
         }
         catch (Exception ex)
         {
