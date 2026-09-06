@@ -4,7 +4,7 @@
 ; 32비트/64비트 Windows 모두 지원 (AnyCPU)
 
 #define MyAppName "IntraDrop"
-#define MyAppVersion "1.6.2"
+#define MyAppVersion "1.7.0"
 #define MyAppPublisher "yunhyok"
 #define MyAppURL "https://github.com/yunhyok/IntraDrop"
 #define MyAppExeName "IntraDrop.exe"

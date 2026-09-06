@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IntraDrop 1.6.2 도움말</title>
+  <title>IntraDrop 1.7.0 도움말</title>
   <style>
     * { box-sizing:border-box; }
     header, main, section, figure, footer { display:block; }
@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header><div><h1>IntraDrop 1.6.2 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
+<header><div><h1>IntraDrop 1.7.0 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
 <main>
   <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
 
@@ -63,14 +63,14 @@
     <table><thead><tr><th>설정</th><th>권장 사용법</th></tr></thead><tbody>
       <tr><td>공유 암호</td><td>파일을 주고받는 모든 컴퓨터에 동일한 유효한 암호를 설정합니다. 인증과 AES-256 암호화가 활성화됩니다.</td></tr>
       <tr><td>등록된 컴퓨터에서만 파일 받기</td><td>모르는 장치의 전송을 거부하려면 켭니다.</td></tr>
-      <tr><td>인증된 피어 자동 검색</td><td>DHCP로 IP가 바뀌는 환경에서 켭니다. 저장 주소는 인증된 신원 확인 후에만 갱신됩니다.</td></tr>
+      <tr><td>인증된 피어 자동 검색</td><td>같은 공유 암호를 설정하고 켜면, 프로그램 시작·재시작 및 IP 변경 시 등록된 컴퓨터에 현재 IP를 알립니다. 상대는 인증 후 주소와 목록을 갱신합니다. UDP가 막혀도 저장된 상대 주소로 TCP 연결이 가능하면 알림이 동작합니다. 시작 직후 재시도하며 이후 10분마다 다시 알립니다.</td></tr>
     </tbody></table>
   </section>
 
   <section id="trouble"><h2>5. 연결되지 않을 때</h2><ul>
     <li>양쪽 컴퓨터에서 IntraDrop이 실행 중인지 확인합니다.</li><li>등록 주소, 포트, 공유 암호가 서로 맞는지 확인합니다.</li><li>컴퓨터 목록의 <strong>새로고침</strong>을 누릅니다.</li><li>Windows 방화벽에서 IntraDrop의 개인 네트워크 통신이 허용됐는지 확인합니다.</li><li>VLAN, 게스트 Wi-Fi, Wi-Fi 클라이언트 격리 환경에서는 장치 간 통신이 차단될 수 있습니다.</li>
   </ul></section>
-  <footer>IntraDrop 1.6.2 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
+  <footer>IntraDrop 1.7.0 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
 </main>
 </body>
 </html>

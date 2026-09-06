@@ -248,8 +248,11 @@ public sealed class ProtocolAndRegistryTests
         finally { server.Stop(); try { Directory.Delete(settings.DownloadFolder, true); } catch { } }
     }
 
-    [Fact]
-    public async Task TransitiveSnapshotRefreshesOnlyKnownPeerAfterDirectOldEndpointFails()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task TransitiveSnapshotRefreshesOnlyKnownPeerAfterDirectOldEndpointFails(bool oldEndpointTimesOut, bool helperTimesOut)
     {
         string secret = "test-shared-secret";
         string aid = Guid.NewGuid().ToString(), bid = Guid.NewGuid().ToString(), cid = Guid.NewGuid().ToString();
@@ -262,11 +265,20 @@ public sealed class ProtocolAndRegistryTests
         a.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.1", LastVerifiedUtc = DateTime.UtcNow });
         c.Peers.Add(new PeerInfo { DeviceId = aid, Host = "127.0.0.1" });
         c.Peers.Add(new PeerInfo { DeviceId = bid, Host = "127.0.0.3" });
+        using var silentHelper = new System.Net.Sockets.TcpListener(IPAddress.Parse("127.0.0.4"), port);
+        if (helperTimesOut)
+        {
+            c.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "127.0.0.4", LastVerifiedUtc = DateTime.UtcNow });
+            silentHelper.Start();
+        }
         var d = new AppSettings { DeviceId = Guid.NewGuid().ToString(), Port = port }; SettingsStore.SetSecret(d, secret); d.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.4", LastVerifiedUtc = DateTime.UtcNow });
         var dServer = new TransferServer { GetSettings = () => d, SavePeers = () => { } };
         var aServer = new TransferServer { GetSettings = () => a, SavePeers = () => { } };
         var bServer = new TransferServer { GetSettings = () => b, SavePeers = () => { } };
-        dServer.Start(port, IPAddress.Parse("127.0.0.1")); aServer.Start(port, IPAddress.Parse("127.0.0.2")); bServer.Start(port, IPAddress.Parse("127.0.0.3"));
+        using var silentEndpoint = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port);
+        if (oldEndpointTimesOut) silentEndpoint.Start();
+        else dServer.Start(port, IPAddress.Parse("127.0.0.1"));
+        aServer.Start(port, IPAddress.Parse("127.0.0.2")); bServer.Start(port, IPAddress.Parse("127.0.0.3"));
         try
         {
             int persisted = 0;

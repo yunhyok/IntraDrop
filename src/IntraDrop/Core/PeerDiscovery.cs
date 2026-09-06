@@ -257,6 +257,7 @@ public sealed class PeerDiscoveryService : IDisposable
     private readonly Func<SettingsStore.SecretResult> _getSecret;
     private readonly DiscoveryReplayCache _replay = new();
     private readonly SemaphoreSlim _handshakeSlots = new(4, 4);
+    private readonly SemaphoreSlim _outboundHandshakeSlots = new(4, 4);
     private readonly SemaphoreSlim _announceSlots = new(1, 1);
     private readonly Dictionary<string, DateTime> _cooldown = new();
     private readonly object _lifecycleSync = new();
@@ -278,23 +279,24 @@ public sealed class PeerDiscoveryService : IDisposable
         Stop();
         var s = _getSettings(); var sec = _getSecret();
         if (!s.EnablePeerDiscovery || !sec.IsAvailable) return;
+        _cts = new CancellationTokenSource();
         try
         {
-            _cts = new CancellationTokenSource();
             _udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
             _udp.Client.ExclusiveAddressUse = true;
             _udp.Client.Bind(new IPEndPoint(IPAddress.Any, s.Port));
-            lock (_lifecycleSync)
-            {
-                _networkSubscribed = true;
-                NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
-            }
-            int generation;
-            lock (_lifecycleSync) generation = ++_generation;
-            _ = ReceiveLoopAsync(_udp, _cts.Token, generation);
-            _ = AnnounceLoopAsync(_cts.Token);
         }
-        catch { Stop(); }
+        catch { _udp?.Close(); _udp = null; } // Direct TCP announcements still work without UDP.
+        int generation;
+        lock (_lifecycleSync)
+        {
+            _networkSubscribed = true;
+            NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
+            generation = ++_generation;
+        }
+        if (_udp != null)
+            _ = ReceiveLoopAsync(_udp, _cts.Token, generation);
+        _ = AnnounceLoopAsync(_cts.Token);
     }
     public void Stop()
     {
@@ -335,16 +337,11 @@ public sealed class PeerDiscoveryService : IDisposable
         try
         {
             await Task.Delay(TimeSpan.FromMilliseconds(500), ct).ConfigureAwait(false);
-            if (!await _handshakeSlots.WaitAsync(0, ct).ConfigureAwait(false)) return;
-            try
+            for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
             {
-                for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
-                {
-                    await AnnounceAsync(ct).ConfigureAwait(false);
-                    if (i < 2) await Task.Delay(TimeSpan.FromSeconds(i == 0 ? 2 : 5), ct).ConfigureAwait(false);
-                }
+                await AnnounceAsync(ct).ConfigureAwait(false);
+                if (i < 2) await Task.Delay(TimeSpan.FromSeconds(i == 0 ? 2 : 5), ct).ConfigureAwait(false);
             }
-            finally { _handshakeSlots.Release(); }
         }
         catch (OperationCanceledException) { }
         finally
@@ -375,13 +372,14 @@ public sealed class PeerDiscoveryService : IDisposable
                 {
                     var now = DateTime.UtcNow;
                     allowed = !_cooldown.TryGetValue(key, out var t) || now - t > TimeSpan.FromSeconds(20);
-                    if (allowed) _cooldown[key] = now;
                     if (_cooldown.Count > 512)
                     {
                         foreach (var old in _cooldown.OrderBy(k => k.Value).Take(_cooldown.Count - 256).ToList()) _cooldown.Remove(old.Key);
                     }
                 }
                 if (allowed && await _handshakeSlots.WaitAsync(0).ConfigureAwait(false))
+                {
+                    lock (_cooldown) _cooldown[key] = DateTime.UtcNow;
                     _ = Task.Run(async () =>
                     {
                         try
@@ -392,21 +390,46 @@ public sealed class PeerDiscoveryService : IDisposable
                         catch { }
                         finally { _handshakeSlots.Release(); }
                     });
+                }
             }
         }
     }
     private async Task AnnounceAsync(CancellationToken ct)
     {
-        await _announceSlots.WaitAsync(ct).ConfigureAwait(false);
+        try { await _announceSlots.WaitAsync(ct).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return; }
         try
         {
-            var sec = _getSecret(); var s = _getSettings(); if (!sec.IsAvailable) return;
+            var sec = _getSecret(); var s = _getSettings(); if (!sec.IsAvailable || !s.EnablePeerDiscovery) return;
             var key = KeyMaterial.FromSecret(sec.Secret)!;
             ulong sequence = unchecked((ulong)Interlocked.Increment(ref _sequence));
             var packet = new DiscoveryPacket { DeviceTag = DiscoveryPacket.DeriveTag(key, s.DeviceId), TcpPort = s.Port, IssuedUtc = DateTime.UtcNow, BootNonce = _bootNonce, Sequence = sequence };
             byte[] wire = packet.Serialize(key);
-            foreach (var broadcast in BroadcastAddresses())
-                await _udp!.SendAsync(wire, wire.Length, new IPEndPoint(broadcast, s.Port)).ConfigureAwait(false);
+            try
+            {
+                if (_udp != null)
+                    foreach (var broadcast in BroadcastAddresses())
+                        await _udp.SendAsync(wire, wire.Length, new IPEndPoint(broadcast, s.Port)).ConfigureAwait(false);
+            }
+            catch { /* A broadcast failure must not skip the registered peers. */ }
+
+            await Task.WhenAll(new PeerRegistry(s).Snapshot()
+                .Where(p => Guid.TryParse(p.DeviceId, out _) && !string.Equals(p.DeviceId, s.DeviceId, StringComparison.OrdinalIgnoreCase))
+                .Select(async peer =>
+                {
+                    await _outboundHandshakeSlots.WaitAsync(ct).ConfigureAwait(false);
+                    try
+                    {
+                        var currentSecret = _getSecret();
+                        if (!s.EnablePeerDiscovery || !currentSecret.IsAvailable || currentSecret.Secret != sec.Secret) return;
+                        // The receiver verifies our identity and learns our current IP from the TCP connection.
+                        await TransferClient.RediscoverAsync(peer.Host, s.Port, s.DeviceName, s.DeviceId,
+                            peer.DeviceId, sec.Secret!, 5000, ct).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+                    catch { /* Offline or changed peers are retried by subsequent announcements. */ }
+                    finally { _outboundHandshakeSlots.Release(); }
+                })).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { }
         catch { }
