@@ -180,6 +180,33 @@ public sealed class ProtocolAndRegistryTests
     }
 
     [Fact]
+    public void ExplorerRefresh_PreservesOpenCommandHandlesAndRemovesOnlyStalePeers()
+    {
+        string path = @"Software\IntraDrop.Tests\" + Guid.NewGuid().ToString("N");
+        var settings = new AppSettings();
+        settings.Peers.Add(new PeerInfo { Host = "workstation", Nickname = "Workstation" });
+        settings.Peers.Add(new PeerInfo { Host = "removed", Nickname = "Removed" });
+        try
+        {
+            using var commands = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(path);
+            var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\Program Files\IntraDrop\IntraDrop.exe");
+            ExplorerContextMenu.WriteEntries(commands, snapshot);
+            string token = ExplorerContextMenu.TokenFor(settings.Peers[0])!;
+            string removed = ExplorerContextMenu.TokenFor(settings.Peers[1])!;
+            using var heldCommand = commands.OpenSubKey(token + @"\command")!;
+            settings.Peers.RemoveAt(1);
+            settings.Peers[0].Nickname = "Renamed Workstation";
+            var updated = ExplorerContextMenu.BuildSnapshot(settings, @"C:\New path\IntraDrop.exe");
+            ExplorerContextMenu.WriteEntries(commands, updated);
+            Assert.Equal(updated.Entries.Single().Command, heldCommand.GetValue(""));
+            using var heldPeer = commands.OpenSubKey(token)!;
+            Assert.Equal("Renamed Workstation", heldPeer.GetValue("MUIVerb"));
+            Assert.Null(commands.OpenSubKey(removed));
+        }
+        finally { Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(path, false); }
+    }
+
+    [Fact]
     public void ExplorerTokens_AreStableOpaqueAndNormalizeDeviceIds()
     {
         var peer = new PeerInfo { DeviceId = "{B3F0B2C2-2D2C-4D2D-9D2D-1234567890AB}", Host = "10.0.0.2", Nickname = "Office" };

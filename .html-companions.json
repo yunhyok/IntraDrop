@@ -5,7 +5,7 @@
     "name": "Markdown HTML Companion",
     "version": "0.1.0"
   },
-  "generatedAt": "2026-09-06T06:59:03.6329160Z",
+  "generatedAt": "2026-09-10T07:04:11.0350405Z",
   "repository": "yunhyok/IntraDrop",
   "baseBranch": "main",
   "baseSha": "8187a4f1943c676e381cfa70e9f72177ed85ccb0",
@@ -15,10 +15,10 @@
   "documents": [
     {
       "source": "README.md",
-      "sourceBlobSha": "eab198bd0ab7d6071bfd137b49a0cf3d25809103",
-      "sourceSha256": "69c8cc69ad3b12c6cbaa2f6fd9e03052191c1c708f9119443411060c7db36221",
+      "sourceBlobSha": "a5eae943b942b501942271e4f0322a02d2f4d0d4",
+      "sourceSha256": "18b2aa96be97c43761ced648b74607f7b979b09a6b1c51c7192f9a8922e11c38",
       "output": "README.companion.html",
-      "outputSha256": "199b2ea3dccfbd48610f752bd8b87f7cb4601f9eb5854838c624ce6eb6c2d06b",
+      "outputSha256": "be5eef5e43e0ce7c9a10610e5a19ebf634c4d231684b111f40d15a00a65669b9",
       "headingCount": 9,
       "visualClassification": "PROCESS_FLOW",
       "visualTitle": "IntraDrop transfer protocol",

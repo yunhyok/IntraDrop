@@ -13,6 +13,7 @@ public static class ExplorerContextMenu
     public const string ChildShellSubKey = @"Software\Classes\IntraDrop.ContextMenu\shell";
     private const string LegacyChildShellSubKey = ParentSubKey + @"\Shell";
     public const string MultiSelectModel = "Document";
+    private static readonly object RegistrySync = new();
 
     public sealed class Entry
     {
@@ -89,6 +90,7 @@ public static class ExplorerContextMenu
     /// <summary>Best-effort HKCU registration. Explorer is notified even when a registry operation fails.</summary>
     public static void Sync(AppSettings settings, string? executablePath = null)
     {
+        lock (RegistrySync)
         try
         {
             executablePath ??= System.Windows.Forms.Application.ExecutablePath;
@@ -104,21 +106,27 @@ public static class ExplorerContextMenu
             }
             using var commands = Registry.CurrentUser.CreateSubKey(ChildShellSubKey);
             if (commands != null)
-            {
-                foreach (var stale in commands.GetSubKeyNames())
-                    try { commands.DeleteSubKeyTree(stale, false); } catch { }
-                foreach (var entry in snapshot.Entries)
-                {
-                    using var key = commands.CreateSubKey(entry.Token);
-                    key?.SetValue("MUIVerb", entry.Label, RegistryValueKind.String);
-                    key?.SetValue("MultiSelectModel", MultiSelectModel, RegistryValueKind.String);
-                    using var command = key?.CreateSubKey("command");
-                    command?.SetValue(null, entry.Command, RegistryValueKind.String);
-                }
-            }
+                WriteEntries(commands, snapshot);
         }
         catch { /* Explorer integration must never prevent startup or settings changes. */ }
         NotifyExplorer();
+    }
+
+    internal static void WriteEntries(RegistryKey commands, Snapshot snapshot)
+    {
+        var current = new HashSet<string>(snapshot.Entries.Select(e => e.Token), StringComparer.OrdinalIgnoreCase);
+        foreach (var stale in commands.GetSubKeyNames().Where(name => !current.Contains(name)))
+            try { commands.DeleteSubKeyTree(stale, false); } catch { }
+        foreach (var entry in snapshot.Entries)
+        {
+            // Explorer retains open registry handles while the menu is displayed.
+            // Deleting and recreating an unchanged verb invalidates its pending command.
+            using var key = commands.CreateSubKey(entry.Token);
+            key?.SetValue("MUIVerb", entry.Label, RegistryValueKind.String);
+            key?.SetValue("MultiSelectModel", MultiSelectModel, RegistryValueKind.String);
+            using var command = key?.CreateSubKey("command");
+            command?.SetValue(null, entry.Command, RegistryValueKind.String);
+        }
     }
 
     private static string DisplayLabel(PeerInfo peer)
