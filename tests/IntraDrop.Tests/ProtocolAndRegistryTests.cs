@@ -197,32 +197,9 @@ public sealed class ProtocolAndRegistryTests
         var settings = new AppSettings();
         settings.Peers.Add(new PeerInfo { Host = "legacy-host", Nickname = "A" });
         settings.Peers.Add(new PeerInfo { Host = " LEGACY-HOST ", Nickname = "B" });
-        var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\Program Files\IntraDrop\IntraDrop.exe");
+        var snapshot = ExplorerContextMenu.BuildSnapshot(settings);
         Assert.Empty(snapshot.Entries);
         Assert.False(ExplorerContextMenu.TryResolveToken(settings, ExplorerContextMenu.TokenFor(settings.Peers[0])!, out _));
-    }
-
-    [Fact]
-    public void ExplorerCommand_UsesShellItemPlaceholderAndDocumentSelection()
-    {
-        string command = ExplorerContextMenu.BuildCommand(@"C:\Program Files\Intra Drop\IntraDrop.exe", "id-abc123");
-        Assert.Equal("\"C:\\Program Files\\Intra Drop\\IntraDrop.exe\" --send-token id-abc123 \"%1\"", command);
-        Assert.Equal("Document", ExplorerContextMenu.MultiSelectModel);
-    }
-
-    [Fact]
-    public void ExplorerSnapshot_ContainsStaticCascadeStructureAndSafeEntries()
-    {
-        var settings = new AppSettings();
-        settings.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "192.168.1.5", Nickname = "Alice" });
-        var snapshot = ExplorerContextMenu.BuildSnapshot(settings, @"C:\IntraDrop.exe");
-        Assert.Single(snapshot.Entries);
-        Assert.Equal(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop", ExplorerContextMenu.ParentSubKey);
-        Assert.Equal(@"IntraDrop.ContextMenu", ExplorerContextMenu.ExtendedSubCommandsKey);
-        Assert.Equal(@"Software\Classes\IntraDrop.ContextMenu\shell", ExplorerContextMenu.ChildShellSubKey);
-        Assert.DoesNotContain(ExplorerContextMenu.ExtendedSubCommandsKey, ExplorerContextMenu.ParentSubKey);
-        Assert.Equal("Document", ExplorerContextMenu.MultiSelectModel);
-        Assert.DoesNotContain("192.168.1.5", snapshot.Entries[0].Command);
     }
 
     [Fact]
@@ -248,8 +225,11 @@ public sealed class ProtocolAndRegistryTests
         finally { server.Stop(); try { Directory.Delete(settings.DownloadFolder, true); } catch { } }
     }
 
-    [Fact]
-    public async Task TransitiveSnapshotRefreshesOnlyKnownPeerAfterDirectOldEndpointFails()
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task TransitiveSnapshotRefreshesOnlyKnownPeerAfterDirectOldEndpointFails(bool oldEndpointTimesOut, bool helperTimesOut)
     {
         string secret = "test-shared-secret";
         string aid = Guid.NewGuid().ToString(), bid = Guid.NewGuid().ToString(), cid = Guid.NewGuid().ToString();
@@ -262,11 +242,20 @@ public sealed class ProtocolAndRegistryTests
         a.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.1", LastVerifiedUtc = DateTime.UtcNow });
         c.Peers.Add(new PeerInfo { DeviceId = aid, Host = "127.0.0.1" });
         c.Peers.Add(new PeerInfo { DeviceId = bid, Host = "127.0.0.3" });
+        using var silentHelper = new System.Net.Sockets.TcpListener(IPAddress.Parse("127.0.0.4"), port);
+        if (helperTimesOut)
+        {
+            c.Peers.Add(new PeerInfo { DeviceId = Guid.NewGuid().ToString(), Host = "127.0.0.4", LastVerifiedUtc = DateTime.UtcNow });
+            silentHelper.Start();
+        }
         var d = new AppSettings { DeviceId = Guid.NewGuid().ToString(), Port = port }; SettingsStore.SetSecret(d, secret); d.Peers.Add(new PeerInfo { DeviceId = cid, Host = "127.0.0.4", LastVerifiedUtc = DateTime.UtcNow });
         var dServer = new TransferServer { GetSettings = () => d, SavePeers = () => { } };
         var aServer = new TransferServer { GetSettings = () => a, SavePeers = () => { } };
         var bServer = new TransferServer { GetSettings = () => b, SavePeers = () => { } };
-        dServer.Start(port, IPAddress.Parse("127.0.0.1")); aServer.Start(port, IPAddress.Parse("127.0.0.2")); bServer.Start(port, IPAddress.Parse("127.0.0.3"));
+        using var silentEndpoint = new System.Net.Sockets.TcpListener(IPAddress.Loopback, port);
+        if (oldEndpointTimesOut) silentEndpoint.Start();
+        else dServer.Start(port, IPAddress.Parse("127.0.0.1"));
+        aServer.Start(port, IPAddress.Parse("127.0.0.2")); bServer.Start(port, IPAddress.Parse("127.0.0.3"));
         try
         {
             int persisted = 0;

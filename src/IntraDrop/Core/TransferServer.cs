@@ -43,6 +43,7 @@ public class TransferServer
     public event Action<string, string>? TransferFailed;           // 보낸이, 사유
     public event Action<string, long>? TransferRejected;           // 보낸이, 크기
     public event Action<string, string>? PeerAutoRegistered;       // 별명, IP
+    public event Action? PeerAddressChanged;
 
     private void PersistPeers()
     {
@@ -60,9 +61,10 @@ public class TransferServer
     public void Start(int port, IPAddress? bindAddress = null)
     {
         Stop();
+        var listener = new TcpListener(bindAddress ?? IPAddress.Any, port);
+        listener.Start();
         _cts = new CancellationTokenSource();
-        _listener = new TcpListener(bindAddress ?? IPAddress.Any, port);
-        _listener.Start();
+        _listener = listener;
         _ = AcceptLoopAsync(_listener, _cts.Token);
     }
 
@@ -293,13 +295,14 @@ public class TransferServer
         var peers = registry.Snapshot().Where(p => string.Equals(p.DeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase)).ToList();
         if (peers.Count != 1) { await RejectAsync(stream, Protocol.StatusNotRegistered, ct); return; }
         string host = Normalize(remote).ToString();
-        bool confirmed = registry.TryConfirmVerified(header.SenderDeviceId, peers[0].Host, host, null, out _);
+        bool confirmed = registry.TryConfirmVerified(header.SenderDeviceId, peers[0].Host, host, null, out bool hostChanged);
         if (!confirmed)
         { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
         PersistPeers();
         await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC,
             Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct);
+        if (hostChanged) PeerAddressChanged?.Invoke();
     }
 
     private async Task HandlePeerSnapshotAsync(TimeoutStream stream, TransferHeader header, KeyMaterial? key,
@@ -369,7 +372,8 @@ public class TransferServer
         try
         {
             string root = Path.GetPathRoot(Path.GetFullPath(settings.DownloadFolder)) ?? "C:\\";
-            if (new DriveInfo(root).AvailableFreeSpace < expected + (64L << 20))
+            long available = new DriveInfo(root).AvailableFreeSpace;
+            if (expected > available || available - expected < (64L << 20))
                 enoughSpace = false;
         }
         catch { /* 확인 불가 시 계속 진행 */ }
@@ -409,13 +413,13 @@ public class TransferServer
             byte[] buffer = new byte[81920];
             foreach (var (relPath, size) in items)
             {
-                string dest = MakeUniquePath(Path.Combine(folder, relPath), reserved);
+                string dest = Path.Combine(folder, relPath);
                 Directory.CreateDirectory(Path.GetDirectoryName(dest)!);
 
-                string partPath = dest + ".part";
+                string partPath = Path.Combine(Path.GetDirectoryName(dest)!, Guid.NewGuid().ToString("N") + ".part");
+                using var fs = new FileStream(partPath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
                 pending.Add((partPath, dest));
 
-                using var fs = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None);
                 long remaining = size;
                 while (remaining > 0)
                 {
@@ -438,7 +442,15 @@ public class TransferServer
         try
         {
             foreach (var (partPath, dest) in pending)
-                File.Move(partPath, dest);   // dest 는 이미 고유 경로 (존재 시 예외)
+            {
+                while (true)
+                {
+                    string unique = MakeUniquePath(dest, reserved);
+                    try { File.Move(partPath, unique); break; }
+                    // Another transfer can claim the name between the check and the move.
+                    catch (IOException) when (File.Exists(unique) || Directory.Exists(unique)) { }
+                }
+            }
         }
         catch
         {

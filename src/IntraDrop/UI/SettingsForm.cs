@@ -141,7 +141,7 @@ public class SettingsForm : Form
 
         _peerDiscovery = new CheckBox
         {
-            Text = "같은 서브넷에서 인증된 피어 자동 검색",
+            Text = "인증된 피어 자동 검색 및 IP 변경 알림",
             AutoSize = true,
             Checked = settings.EnablePeerDiscovery,
             Anchor = AnchorStyles.Left,
@@ -242,7 +242,7 @@ public class SettingsForm : Form
         settings.AutoStart = _autoStart.Checked;
         settings.Port = (int)_port.Value;
         if (_clearSecret || !string.IsNullOrWhiteSpace(_secret.Text))
-            SettingsStore.SetSecret(settings, _clearSecret ? "" : _secret.Text.Trim());
+            SettingsStore.SetSecret(settings, _secret.Text.Trim());
         settings.AcceptFromRegisteredOnly = _acceptFromRegisteredOnly.Checked;
         settings.EnablePeerDiscovery = _peerDiscovery.Checked;
     }

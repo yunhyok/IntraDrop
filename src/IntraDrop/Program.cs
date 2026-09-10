@@ -10,6 +10,11 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--remove-explorer-integration")
+        {
+            ExplorerContextMenu.Sync(new IntraDrop.Models.AppSettings());
+            return;
+        }
         // 숨김 CLI 모드: IntraDrop.exe --send <호스트> <경로> [경로...]
         // (테스트 및 스크립트 자동화용, GUI 없이 전송만 수행)
         if (args.Length >= 3 && args[0] == "--send")

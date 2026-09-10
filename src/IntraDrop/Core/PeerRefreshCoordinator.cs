@@ -25,7 +25,7 @@ public sealed class PeerRefreshCoordinator
             if (!current.IsAvailable || !string.Equals(current.Secret, secret.Secret, StringComparison.Ordinal)) return null;
             if (string.Equals(direct.SenderDeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase) && _registry.TryConfirmVerified(target.DeviceId, expectedHost, expectedHost, direct.SenderName, out _)) { _save(); return direct.SenderName; }
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { }
         var helpers = _registry.Snapshot().Where(p => !string.Equals(p.DeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase) && !string.Equals(p.DeviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.DeviceId)).OrderByDescending(p => p.LastVerifiedUtc ?? DateTime.MinValue).Take(3).ToList();
         foreach (var helper in helpers)
@@ -46,7 +46,7 @@ public sealed class PeerRefreshCoordinator
                     if (_registry.TryConfirmVerified(target.DeviceId, expectedHost, hint.Host, null, out _)) { _save(); return identity.SenderName; }
                 }
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
             catch { }
         }
         return null;

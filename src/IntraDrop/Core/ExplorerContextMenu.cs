@@ -1,25 +1,25 @@
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 using IntraDrop.Models;
 
 namespace IntraDrop.Core;
 
-/// <summary>Static Explorer cascading-menu registration. Menu construction is pure; registry I/O is best effort.</summary>
+/// <summary>Explorer Send To shortcuts. Selected files are dropped as data, never opened as shell verbs.</summary>
 public static class ExplorerContextMenu
 {
-    public const string ParentSubKey = @"Software\Classes\AllFilesystemObjects\shell\IntraDrop";
-    public const string ExtendedSubCommandsKey = @"IntraDrop.ContextMenu";
-    public const string ChildShellSubKey = @"Software\Classes\IntraDrop.ContextMenu\shell";
-    private const string LegacyChildShellSubKey = ParentSubKey + @"\Shell";
-    public const string MultiSelectModel = "Document";
+    internal const string ShortcutPrefix = "IntraDrop - ";
+    internal const string ShortcutDescription = "IntraDrop file transfer";
+    private static readonly object SyncRoot = new();
 
     public sealed class Entry
     {
         public string Token { get; init; } = "";
         public string Label { get; init; } = "";
         public string Host { get; init; } = "";
-        public string Command { get; init; } = "";
+        public string Arguments { get; init; } = "";
         public string DeviceId { get; init; } = "";
     }
 
@@ -29,10 +29,9 @@ public static class ExplorerContextMenu
     }
 
     /// <summary>Builds safe deterministic command entries without touching the registry.</summary>
-    public static Snapshot BuildSnapshot(AppSettings settings, string executablePath)
+    public static Snapshot BuildSnapshot(AppSettings settings)
     {
         if (settings == null) throw new ArgumentNullException(nameof(settings));
-        if (string.IsNullOrWhiteSpace(executablePath)) throw new ArgumentException("Executable path is required.", nameof(executablePath));
         List<PeerInfo> peers;
         lock (settings.SyncRoot)
             peers = (settings.Peers ?? new List<PeerInfo>()).Select(p => new PeerInfo { DeviceId = p.DeviceId, Host = p.Host, Nickname = p.Nickname, LastVerifiedUtc = p.LastVerifiedUtc }).ToList();
@@ -51,7 +50,7 @@ public static class ExplorerContextMenu
                 Label = DisplayLabel(x.Peer),
                 Host = x.Peer.Host.Trim(),
                 DeviceId = NormalizeDeviceId(x.Peer.DeviceId),
-                Command = BuildCommand(executablePath, x.Token!),
+                Arguments = "--send-token " + x.Token!,
             })
             .ToList();
         return new Snapshot { Entries = candidates };
@@ -73,9 +72,6 @@ public static class ExplorerContextMenu
         return true;
     }
 
-    public static string BuildCommand(string executablePath, string token) =>
-        QuoteWindowsArg(executablePath) + " --send-token " + token + " \"%1\"";
-
     public static string? TokenFor(PeerInfo peer)
     {
         if (peer == null || string.IsNullOrWhiteSpace(peer.Host)) return null;
@@ -86,39 +82,64 @@ public static class ExplorerContextMenu
         return "legacy-" + BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(host))).Replace("-", "").ToLowerInvariant();
     }
 
-    /// <summary>Best-effort HKCU registration. Explorer is notified even when a registry operation fails.</summary>
+    /// <summary>Use Windows Send To instead of static verbs, which can execute downloaded EXEs.</summary>
     public static void Sync(AppSettings settings, string? executablePath = null)
     {
+        lock (SyncRoot)
         try
         {
-            executablePath ??= System.Windows.Forms.Application.ExecutablePath;
-            var snapshot = BuildSnapshot(settings, executablePath);
-            try { Registry.CurrentUser.DeleteSubKeyTree(LegacyChildShellSubKey, false); } catch { }
-            using var parent = Registry.CurrentUser.CreateSubKey(ParentSubKey);
-            if (parent != null)
-            {
-                parent.SetValue("MUIVerb", "IntraDrop", RegistryValueKind.String);
-                parent.SetValue("Icon", executablePath + ",0", RegistryValueKind.String);
-                parent.SetValue("ExtendedSubCommandsKey", ExtendedSubCommandsKey, RegistryValueKind.String);
-                parent.SetValue("MultiSelectModel", MultiSelectModel, RegistryValueKind.String);
-            }
-            using var commands = Registry.CurrentUser.CreateSubKey(ChildShellSubKey);
-            if (commands != null)
-            {
-                foreach (var stale in commands.GetSubKeyNames())
-                    try { commands.DeleteSubKeyTree(stale, false); } catch { }
-                foreach (var entry in snapshot.Entries)
-                {
-                    using var key = commands.CreateSubKey(entry.Token);
-                    key?.SetValue("MUIVerb", entry.Label, RegistryValueKind.String);
-                    key?.SetValue("MultiSelectModel", MultiSelectModel, RegistryValueKind.String);
-                    using var command = key?.CreateSubKey("command");
-                    command?.SetValue(null, entry.Command, RegistryValueKind.String);
-                }
-            }
+            // Remove both old cascade layouts, including on upgrades from 1.6.x.
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\AllFilesystemObjects\shell\IntraDrop", false);
+            Registry.CurrentUser.DeleteSubKeyTree(@"Software\Classes\IntraDrop.ContextMenu", false);
+            SyncShortcuts(BuildSnapshot(settings), executablePath ?? System.Windows.Forms.Application.ExecutablePath,
+                Environment.GetFolderPath(Environment.SpecialFolder.SendTo));
         }
         catch { /* Explorer integration must never prevent startup or settings changes. */ }
         NotifyExplorer();
+    }
+
+    internal static void SyncShortcuts(Snapshot snapshot, string executablePath, string directory)
+    {
+        Directory.CreateDirectory(directory);
+        dynamic shell = Activator.CreateInstance(Type.GetTypeFromProgID("WScript.Shell")!)!;
+        try
+        {
+            var owned = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string path in Directory.EnumerateFiles(directory, ShortcutPrefix + "*.lnk"))
+            {
+                dynamic link = shell.CreateShortcut(path);
+                try { if ((string)link.Description == ShortcutDescription) owned.Add(path, (string)link.Arguments); }
+                finally { Marshal.FinalReleaseComObject(link); }
+            }
+            var current = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in snapshot.Entries)
+            {
+                string label = new string(entry.Label.Take(80).Select(c => char.IsControl(c) || Path.GetInvalidFileNameChars().Contains(c) ? '_' : c).ToArray());
+                string stem = ShortcutPrefix + label;
+                string path = owned.FirstOrDefault(p => p.Value == entry.Arguments &&
+                    Regex.IsMatch(Path.GetFileNameWithoutExtension(p.Key), "^" + Regex.Escape(stem) + @"(?: \(\d+\))?$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)).Key
+                    ?? Path.Combine(directory, stem + ".lnk");
+                int suffix = 2;
+                while (current.Contains(path) || (File.Exists(path) &&
+                    (!owned.TryGetValue(path, out var arguments) || arguments != entry.Arguments)))
+                    path = Path.Combine(directory, stem + " (" + suffix++ + ").lnk");
+                dynamic link = shell.CreateShortcut(path);
+                try
+                {
+                    link.TargetPath = executablePath;
+                    // Windows appends the complete selection; do not put %1 in a shortcut.
+                    link.Arguments = entry.Arguments;
+                    link.WorkingDirectory = Path.GetDirectoryName(executablePath);
+                    link.IconLocation = executablePath + ",0";
+                    link.Description = ShortcutDescription;
+                    link.Save();
+                    current.Add(path);
+                }
+                finally { Marshal.FinalReleaseComObject(link); }
+            }
+            foreach (string stale in owned.Keys.Where(path => !current.Contains(path))) File.Delete(stale);
+        }
+        finally { Marshal.FinalReleaseComObject(shell); }
     }
 
     private static string DisplayLabel(PeerInfo peer)
@@ -130,21 +151,6 @@ public static class ExplorerContextMenu
     private static string NormalizeDeviceId(string? value) => Guid.TryParse(value?.Trim(), out var id) ? id.ToString("N").ToLowerInvariant() : "";
 
     private static bool IsSafeToken(string token) => !string.IsNullOrWhiteSpace(token) && token.Length <= 80 && token.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-');
-
-    private static string QuoteWindowsArg(string value)
-    {
-        var b = new StringBuilder(value.Length + 2); b.Append('"');
-        int slashes = 0;
-        foreach (char c in value)
-        {
-            if (c == '\\') { slashes++; continue; }
-            if (c == '"') { b.Append('\\', slashes * 2 + 1).Append('"'); slashes = 0; continue; }
-            if (slashes > 0) { b.Append('\\', slashes); slashes = 0; }
-            b.Append(c);
-        }
-        b.Append('\\', slashes * 2).Append('"');
-        return b.ToString();
-    }
 
     private static void NotifyExplorer()
     {

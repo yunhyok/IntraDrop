@@ -51,8 +51,9 @@ public class TrayApplicationContext : ApplicationContext
         _server.TransferFailed += OnTransferFailed;
         _server.TransferRejected += OnTransferRejected;
         _server.PeerAutoRegistered += OnPeerAutoRegistered;
+        _server.PeerAddressChanged += () => _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
         StartServer();
-        _discovery.Start();
+        if (_server.IsRunning) _discovery.Start();
         _ = PairLegacyPeersAsync();
     }
 
@@ -249,7 +250,7 @@ public class TrayApplicationContext : ApplicationContext
             StartServer();
         var newSecretState = SettingsStore.ReadSecret(_settings);
         if (_settings.Port != oldPort || oldDiscovery != _settings.EnablePeerDiscovery || oldSecret != (newSecretState.IsAvailable ? newSecretState.Secret! : ""))
-        { _discovery.Stop(); _discovery.Start(); }
+        { _discovery.Stop(); if (_server.IsRunning) _discovery.Start(); }
         if (!oldSecretState.IsAvailable && newSecretState.IsAvailable)
             _ = PairLegacyPeersAsync();
     }

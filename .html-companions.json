@@ -5,33 +5,33 @@
     "name": "Markdown HTML Companion",
     "version": "0.1.0"
   },
-  "generatedAt": "2026-09-02T05:36:47.5522333Z",
+  "generatedAt": "2026-09-10T07:29:46.8414774Z",
   "repository": "yunhyok/IntraDrop",
   "baseBranch": "main",
-  "baseSha": "e81b0f00f0f06ed6c6b2f43e37daa3619e531981",
-  "branch": "codex/context-menu-exe-icon-1.6.2",
+  "baseSha": "8187a4f1943c676e381cfa70e9f72177ed85ccb0",
+  "branch": "codex/restart-ip-announcement-1.7.0",
   "sourceMarkdownCount": 1,
   "generatedHtmlCount": 1,
   "documents": [
     {
       "source": "README.md",
-      "sourceBlobSha": "f778241d702257ae318b05908d18d9f47310803c",
-      "sourceSha256": "607778e8188190373a40ee3fe2caf0ce5c73e0766962f7d6d0f7bda2a67a8d9f",
+      "sourceBlobSha": "2e1f54975225ed9fdbe09bc721ea535f594e41b9",
+      "sourceSha256": "de39135f5d94229371e40f966ea743a548e074d7d5a7e70a33cf82f6ec48f8f1",
       "output": "README.companion.html",
-      "outputSha256": "4a74ed63feab9462afdf906f5bd540974abbb41c682d3679ea18f8c662b1181c",
+      "outputSha256": "5b58d8b020add75d9abc718b3a29a0a0d67144bab6093b8cd12f99935dd4de2d",
       "headingCount": 9,
       "visualClassification": "PROCESS_FLOW",
       "visualTitle": "IntraDrop transfer protocol",
       "diagramAdded": true,
       "evidence": [
         {
-          "lineStart": 75,
-          "lineEnd": 82,
+          "lineStart": 76,
+          "lineEnd": 83,
           "summary": "Protocol sequence from TCP listener through nonce, header, acceptance, streaming, MAC verification, and close is explicit."
         },
         {
-          "lineStart": 86,
-          "lineEnd": 91,
+          "lineStart": 87,
+          "lineEnd": 92,
           "summary": "Security success/failure and allow-list behavior are explicit."
         }
       ],
