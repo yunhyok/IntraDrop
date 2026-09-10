@@ -26,13 +26,19 @@ public sealed class PeerAnnouncementTests
     [Fact]
     public async Task StartAndRestartNotifyRegisteredPeerEvenWithoutUdp()
     {
-        using var portReservation = new TcpListener(IPAddress.Loopback, 0);
-        portReservation.Start();
-        int port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
-        portReservation.Stop();
         using var busyUdp = new UdpClient(AddressFamily.InterNetwork);
         busyUdp.Client.ExclusiveAddressUse = true;
-        busyUdp.Client.Bind(new IPEndPoint(IPAddress.Any, port));
+        int port;
+        for (int attempt = 0; ; attempt++)
+        {
+            using var portReservation = new TcpListener(IPAddress.Loopback, 0);
+            portReservation.Start();
+            port = ((IPEndPoint)portReservation.LocalEndpoint).Port;
+            try { busyUdp.Client.Bind(new IPEndPoint(IPAddress.Any, port)); break; }
+            // A free TCP port can be reserved or already occupied for UDP.
+            catch (SocketException ex) when (attempt < 19 &&
+                ex.SocketErrorCode is SocketError.AccessDenied or SocketError.AddressAlreadyInUse) { }
+        }
 
         var sender = new AppSettings { Port = port };
         var receiver = new AppSettings { Port = port };

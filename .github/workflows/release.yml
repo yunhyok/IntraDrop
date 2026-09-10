@@ -18,8 +18,10 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
-      - name: Restore and run deterministic tests
-        run: dotnet test tests/IntraDrop.Tests/IntraDrop.Tests.csproj -c Release
+      # Hosted runners do not populate the user's Send To shortcuts. Run the
+      # InteractiveShell test on a Windows desktop before publishing a release.
+      - name: Restore and run noninteractive tests
+        run: dotnet test tests/IntraDrop.Tests/IntraDrop.Tests.csproj -c Release --filter "Category!=InteractiveShell"
 
       - name: Publish Windows 10/11 build (net8, self-contained single file)
         run: >

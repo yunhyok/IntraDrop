@@ -56,6 +56,7 @@ public sealed class ExplorerSendToTests
     }
 
     [Fact]
+    [Trait("Category", "InteractiveShell")]
     public void WindowsSendTo_PassesDownloadedExeAndMultipleFilesWithoutExecutingSelection()
     {
         string root = Directory.CreateTempSubdirectory("IntraDrop-shell-").FullName;
