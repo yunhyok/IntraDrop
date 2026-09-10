@@ -6,6 +6,7 @@ using System.Text;
 // Runs Windows' actual Send To menu on a selection, in a separate STA process.
 class ShellMenuProbe
 {
+    static readonly StringBuilder MenuTrace = new StringBuilder();
     [ComImport, Guid("000214E6-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     interface IShellFolder
     {
@@ -46,10 +47,12 @@ class ShellMenuProbe
         for (int i=0; i<GetMenuItemCount(menu); i++)
         {
             var text = new StringBuilder(512); GetMenuString(menu,(uint)i,text,text.Capacity,0x400);
+            MenuTrace.AppendLine(text.ToString());
             IntPtr sub = GetSubMenu(menu,i);
             if (sub!=IntPtr.Zero)
             {
-                context.HandleMenuMsg(0x117,sub,new IntPtr(i));
+                int result=context.HandleMenuMsg(0x117,sub,new IntPtr(i));
+                MenuTrace.AppendLine("Popup result: " + result.ToString("X8"));
                 uint found=Find(context,sub,target); if (found!=0) return found;
             }
             else if (text.ToString().Replace("&", "")==target) return GetMenuItemID(menu,i);
@@ -74,7 +77,7 @@ class ShellMenuProbe
             folder.GetUIObjectOf(IntPtr.Zero,(uint)children.Length,children,ref cm,IntPtr.Zero,out pointer);
             context=(IContextMenu2)Marshal.GetObjectForIUnknown(pointer); menu=CreatePopupMenu();
             Marshal.ThrowExceptionForHR(context.QueryContextMenu(menu,0,1,0x7fff,0));
-            uint id=Find(context,menu,args[0]); if(id==0) throw new Exception("Send To entry not found.");
+            uint id=Find(context,menu,args[0]); if(id==0) throw new Exception("Send To entry not found: " + args[0] + "\n" + MenuTrace);
             var info=new InvokeInfo {size=Marshal.SizeOf(typeof(InvokeInfo)),mask=0x100,verb=new IntPtr(id-1),show=0};
             Marshal.ThrowExceptionForHR(context.InvokeCommand(ref info)); return 0;
         }
