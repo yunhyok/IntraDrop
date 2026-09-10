@@ -11,7 +11,7 @@
     <RootNamespace>IntraDrop</RootNamespace>
     <AssemblyName>IntraDrop</AssemblyName>
     <ApplicationIcon>app.ico</ApplicationIcon>
-    <Version>1.7.1</Version>
+    <Version>1.7.2</Version>
     <Company>yunhyok</Company>
     <Product>IntraDrop</Product>
     <Description>인트라넷 파일 전송 트레이 프로그램</Description>
@@ -31,6 +31,7 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="Microsoft.CSharp" />
     <PackageReference Include="System.Text.Json" Version="8.0.5" />
     <!-- .NET Framework 4.8 Developer Pack 없이도 net48 빌드 가능하게 하는 참조 어셈블리 -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
