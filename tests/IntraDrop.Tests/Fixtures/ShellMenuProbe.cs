@@ -35,7 +35,6 @@ class ShellMenuProbe
     }
     [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern int SHParseDisplayName(string name, IntPtr bind, out IntPtr pidl, uint attributes, out uint actual);
     [DllImport("shell32.dll")] static extern int SHBindToParent(IntPtr pidl, ref Guid iid, [MarshalAs(UnmanagedType.Interface)] out IShellFolder folder, out IntPtr child);
-    [DllImport("shell32.dll", CharSet=CharSet.Unicode)] static extern void SHChangeNotify(uint eventId, uint flags, string item1, IntPtr item2);
     [DllImport("user32.dll")] static extern IntPtr CreatePopupMenu();
     [DllImport("user32.dll")] static extern bool DestroyMenu(IntPtr menu);
     [DllImport("user32.dll")] static extern int GetMenuItemCount(IntPtr menu);
@@ -67,9 +66,6 @@ class ShellMenuProbe
         IShellFolder folder=null; IContextMenu2 context=null; IntPtr pointer=IntPtr.Zero, menu=IntPtr.Zero;
         try
         {
-            string shortcut=Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.SendTo),args[0]+".lnk");
-            if(!File.Exists(shortcut)) throw new FileNotFoundException("Shell profile does not contain the test shortcut.",shortcut);
-            SHChangeNotify(0x2,0x1005,shortcut,IntPtr.Zero); // SHCNE_CREATE, SHCNF_PATHW | SHCNF_FLUSH
             Guid sf=typeof(IShellFolder).GUID;
             for(int i=0;i<pidls.Length;i++)
             {
