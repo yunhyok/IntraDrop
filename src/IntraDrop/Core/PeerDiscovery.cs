@@ -278,15 +278,18 @@ public sealed class PeerDiscoveryService : IDisposable
     {
         Stop();
         var s = _getSettings(); var sec = _getSecret();
-        if (!s.EnablePeerDiscovery || !sec.IsAvailable) return;
+        if (!sec.IsAvailable) return;
         _cts = new CancellationTokenSource();
-        try
+        if (s.EnablePeerDiscovery)
         {
-            _udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
-            _udp.Client.ExclusiveAddressUse = true;
-            _udp.Client.Bind(new IPEndPoint(IPAddress.Any, s.Port));
+            try
+            {
+                _udp = new UdpClient(AddressFamily.InterNetwork) { EnableBroadcast = true };
+                _udp.Client.ExclusiveAddressUse = true;
+                _udp.Client.Bind(new IPEndPoint(IPAddress.Any, s.Port));
+            }
+            catch { _udp?.Close(); _udp = null; } // Direct TCP announcements still work without UDP.
         }
-        catch { _udp?.Close(); _udp = null; } // Direct TCP announcements still work without UDP.
         int generation;
         lock (_lifecycleSync)
         {
@@ -400,7 +403,7 @@ public sealed class PeerDiscoveryService : IDisposable
         catch (OperationCanceledException) { return; }
         try
         {
-            var sec = _getSecret(); var s = _getSettings(); if (!sec.IsAvailable || !s.EnablePeerDiscovery) return;
+            var sec = _getSecret(); var s = _getSettings(); if (!sec.IsAvailable) return;
             var key = KeyMaterial.FromSecret(sec.Secret)!;
             ulong sequence = unchecked((ulong)Interlocked.Increment(ref _sequence));
             var packet = new DiscoveryPacket { DeviceTag = DiscoveryPacket.DeriveTag(key, s.DeviceId), TcpPort = s.Port, IssuedUtc = DateTime.UtcNow, BootNonce = _bootNonce, Sequence = sequence };
@@ -421,7 +424,7 @@ public sealed class PeerDiscoveryService : IDisposable
                     try
                     {
                         var currentSecret = _getSecret();
-                        if (!s.EnablePeerDiscovery || !currentSecret.IsAvailable || currentSecret.Secret != sec.Secret) return;
+                        if (!currentSecret.IsAvailable || currentSecret.Secret != sec.Secret) return;
                         // The receiver verifies our identity and learns our current IP from the TCP connection.
                         await TransferClient.RediscoverAsync(peer.Host, s.Port, s.DeviceName, s.DeviceId,
                             peer.DeviceId, sec.Secret!, 5000, ct).ConfigureAwait(false);

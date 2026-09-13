@@ -23,8 +23,10 @@ public sealed class PeerAnnouncementTests
         finally { server.Stop(); }
     }
 
-    [Fact]
-    public async Task StartAndRestartNotifyRegisteredPeerEvenWithoutUdp()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task StartAndRestartNotifyRegisteredPeerEvenWithoutUdp(bool enablePeerDiscovery)
     {
         using var busyUdp = new UdpClient(AddressFamily.InterNetwork);
         busyUdp.Client.ExclusiveAddressUse = true;
@@ -40,7 +42,7 @@ public sealed class PeerAnnouncementTests
                 ex.SocketErrorCode is SocketError.AccessDenied or SocketError.AddressAlreadyInUse) { }
         }
 
-        var sender = new AppSettings { Port = port };
+        var sender = new AppSettings { Port = port, EnablePeerDiscovery = enablePeerDiscovery };
         var receiver = new AppSettings { Port = port };
         SettingsStore.SetSecret(sender, "restart-test-secret");
         SettingsStore.SetSecret(receiver, "restart-test-secret");

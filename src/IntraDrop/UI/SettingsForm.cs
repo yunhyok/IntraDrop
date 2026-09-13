@@ -141,7 +141,7 @@ public class SettingsForm : Form
 
         _peerDiscovery = new CheckBox
         {
-            Text = "인증된 피어 자동 검색 및 IP 변경 알림",
+            Text = "인증된 피어 UDP 자동 검색 (직접 IP 알림은 공유 암호·인증된 장치 ID 필요)",
             AutoSize = true,
             Checked = settings.EnablePeerDiscovery,
             Anchor = AnchorStyles.Left,
