@@ -443,12 +443,10 @@ public sealed class PeerDiscoveryService : IDisposable
         for (int i = 0; i < 3 && !ct.IsCancellationRequested; i++)
         {
             await AnnounceAsync(ct).ConfigureAwait(false);
-            try { await Task.Delay(TimeSpan.FromSeconds(i == 0 ? 2 : 5), ct).ConfigureAwait(false); } catch { return; }
-        }
-        while (!ct.IsCancellationRequested)
-        {
-            try { await Task.Delay(TimeSpan.FromMinutes(10), ct).ConfigureAwait(false); } catch { return; }
-            await AnnounceAsync(ct).ConfigureAwait(false);
+            if (i < 2)
+            {
+                try { await Task.Delay(TimeSpan.FromSeconds(i == 0 ? 2 : 5), ct).ConfigureAwait(false); } catch { return; }
+            }
         }
     }
     private static bool IsLocalAddress(IPAddress address)
