@@ -342,6 +342,12 @@ public class TransferServer
         List<ClipboardManifestItem>? manifest = null;
         long expected;
 
+        if (key != null && !IsValidClipboardRequestId(header.ClipboardRequestId))
+        {
+            await RejectAsync(stream, Protocol.StatusRefused, ct);
+            return;
+        }
+
         if (format == "text" || format == "png")
         {
             long limit = format == "text" ? ClipboardContent.MaxTextBytes : ClipboardContent.MaxImageBytes;
@@ -470,8 +476,24 @@ public class TransferServer
             await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.ToJsonBytes(new TransferHeader
             {
                 Type = "clipboard_applied", ClipboardFormat = header.ClipboardFormat,
+                ClipboardRequestId = header.ClipboardRequestId,
                 SenderDeviceId = settings.DeviceId, RecipientDeviceId = header.SenderDeviceId,
             }), ct);
+    }
+
+    private static bool IsValidClipboardRequestId(string? value)
+    {
+        if (value == null || value.Length != 24) return false;
+        try
+        {
+            byte[] bytes = Convert.FromBase64String(value);
+            return bytes.Length == KeyMaterial.NonceLength &&
+                   string.Equals(Convert.ToBase64String(bytes), value, StringComparison.Ordinal);
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
     }
 
     private static async Task TryWriteClipboardFailureAsync(TimeoutStream stream, CancellationToken ct)

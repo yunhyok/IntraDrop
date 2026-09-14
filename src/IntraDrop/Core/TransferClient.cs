@@ -245,6 +245,7 @@ public static class TransferClient
         {
             Type = "clipboard",
             ClipboardFormat = format,
+            ClipboardRequestId = Convert.ToBase64String(Crypto.NewNonce()),
             SenderName = senderName,
             SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
             RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "",
@@ -296,7 +297,7 @@ public static class TransferClient
         catch (EndOfStreamException ex) when (header.Type == "clipboard")
         {
             throw new InvalidOperationException(
-                "클립보드 전달에는 양쪽 컴퓨터 모두 IntraDrop 1.8.0 이상이 필요합니다.", ex);
+                "클립보드 전달에는 양쪽 컴퓨터 모두 IntraDrop 1.8.1 이상이 필요합니다.", ex);
         }
         if (status != Protocol.StatusAccepted)
             throw TransferStatusException.From(status);
@@ -349,10 +350,12 @@ public static class TransferClient
             var receipt = Protocol.FromJsonBytes<TransferHeader>(await Segment.ReadSegmentAsync(
                 stream, key, nonce, Segment.IndexC, 4096, ct));
             if (receipt.Type != "clipboard_applied" || receipt.ClipboardFormat != header.ClipboardFormat ||
+                !string.Equals(receipt.ClipboardRequestId, header.ClipboardRequestId, StringComparison.Ordinal) ||
                 !string.Equals(receipt.RecipientDeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrWhiteSpace(header.RecipientDeviceId) &&
                  !string.Equals(receipt.SenderDeviceId, header.RecipientDeviceId, StringComparison.OrdinalIgnoreCase)))
-                throw new InvalidDataException("상대방의 클립보드 완료 응답을 인증할 수 없습니다.");
+                throw new InvalidDataException(
+                    "상대방의 클립보드 완료 응답을 인증할 수 없습니다. 양쪽 컴퓨터 모두 IntraDrop 1.8.1 이상인지 확인하세요.");
         }
     }
 

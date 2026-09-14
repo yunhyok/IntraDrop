@@ -32,8 +32,8 @@
 
 | Windows 버전 | 인스톨러 | 비고 |
 |---|---|---|
-| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.8.0.exe` | .NET 런타임 포함, 별도 설치 불필요 |
-| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.8.0-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.8.1.exe` | .NET 런타임 포함, 별도 설치 불필요 |
+| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.8.1-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
 
 서로 다른 버전의 Windows끼리도 정상적으로 파일을 주고받을 수 있습니다 (동일 프로토콜).
 
@@ -55,7 +55,7 @@
 
 ## 클립보드 전달과 Windows 호환성
 
-Windows 7 SP1의 .NET Framework 4.8과 Windows 10/11의 .NET 8에서 공통으로 제공되는 Windows 클립보드 형식을 사용합니다. **양쪽 모두 IntraDrop 1.8.0 이상**이어야 하며, 구버전 상대에게 클립보드 전송을 시도하면 업데이트 안내가 표시됩니다.
+Windows 7 SP1의 .NET Framework 4.8과 Windows 10/11의 .NET 8에서 공통으로 제공되는 Windows 클립보드 형식을 사용합니다. **양쪽 모두 IntraDrop 1.8.1 이상**이어야 하며, 구버전 상대에게 클립보드 전송을 시도하면 업데이트 안내가 표시됩니다.
 
 | 복사한 내용 | 지원 범위 |
 |---|---|
@@ -70,7 +70,7 @@ Windows 7 SP1의 .NET Framework 4.8과 Windows 10/11의 .NET 8에서 공통으�
 
 파일은 다운로드 폴더 아래 전송별 폴더에 보관됩니다. 같은 이름의 항목도 구분하며 기존 파일을 덮어쓰지 않습니다. 잘라내기로 복사한 경우도 **복사**로 전달해 송신 원본은 삭제하지 않습니다. 받은 파일은 붙여넣기 전에 삭제하지 마세요. 연결점·심볼릭 링크 등 재분석 지점은 지원하지 않으며 실제 파일·폴더를 선택해야 합니다.
 
-기존 공유 암호·수신 허용 목록·대용량 수락 확인을 적용합니다. 전체 데이터 검증과 수신 클립보드 등록이 모두 끝난 뒤 송신 완료로 표시합니다. 클립보드가 다른 앱에 잠겨 있으면 잠시 재시도하고 실패를 알립니다. 이 경우 이미 받은 파일은 다운로드 폴더에 보존됩니다. Windows 알림 설정에 따라 풍선 표시가 숨겨질 수 있습니다.
+기존 공유 암호·수신 허용 목록·대용량 수락 확인을 적용합니다. 전체 데이터 검증과 수신 클립보드 등록이 모두 끝난 뒤 송신 완료로 표시합니다. 클립보드가 다른 앱에 잠겨 있으면 잠시 재시도하고 실패를 알립니다. 이 경우 이미 받은 파일은 다운로드 폴더에 보존됩니다. Windows 알림 설정에 따라 풍선 표시가 숨겨질 수 있습니다. 공유 암호를 사용하는 클립보드 전송은 송신자가 매번 생성한 난수와 일치하는 인증된 완료 응답을 확인해 이전 완료 응답의 재사용도 거부합니다.
 
 호환성 근거: Microsoft의 [클립보드 형식과 Shell 파일 객체](https://learn.microsoft.com/en-us/windows/win32/shell/clipboard), [Windows Forms 클립보드 데이터 추가](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/advanced/how-to-add-data-to-the-clipboard), [STA·지속 저장·재시도 API](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.clipboard.setdataobject?view=netframework-4.8.1). 임의 객체를 직렬화해 네트워크에서 복원하지 않습니다.
 

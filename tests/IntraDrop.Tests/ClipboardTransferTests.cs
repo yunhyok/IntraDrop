@@ -35,6 +35,85 @@ public sealed class ClipboardTransferTests
     }
 
     [Fact]
+    public async Task CapturedSecuredReceiptCannotBeReplayedForFreshClipboardRequest()
+    {
+        const string secret = "receipt-replay-secret";
+        string senderId = Guid.NewGuid().ToString("N");
+        string recipientId = Guid.NewGuid().ToString("N");
+        byte[] nonce = Enumerable.Repeat((byte)0x5a, KeyMaterial.NonceLength).ToArray();
+        byte[][] payloads =
+        {
+            Encoding.UTF8.GetBytes("first value"),
+            Encoding.UTF8.GetBytes("other value"),
+        };
+        var headers = new List<TransferHeader>();
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+
+        var endpoint = Task.Run(async () =>
+        {
+            var key = KeyMaterial.FromSecret(secret)!;
+            byte[] capturedReceipt = Array.Empty<byte>();
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                using var tcp = await listener.AcceptTcpClientAsync(timeout.Token);
+                using var stream = tcp.GetStream();
+                Assert.Equal(Protocol.FlagSecured, await Protocol.ReadMagicAsync(stream, timeout.Token));
+                await stream.WriteAsync(nonce, 0, nonce.Length, timeout.Token);
+                await stream.FlushAsync(timeout.Token);
+
+                var header = Protocol.FromJsonBytes<TransferHeader>(await Segment.ReadSegmentAsync(
+                    stream, key, nonce, Segment.IndexA, Protocol.MaxJsonLength, timeout.Token));
+                headers.Add(header);
+                Assert.Equal("clipboard", header.Type);
+                Assert.Equal("text", header.ClipboardFormat);
+                Assert.Equal(senderId, header.SenderDeviceId);
+                Assert.Equal(recipientId, header.RecipientDeviceId);
+
+                await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, timeout.Token);
+                Assert.Equal(payloads[attempt], await Segment.ReadSegmentAsync(
+                    stream, key, nonce, Segment.IndexB, ClipboardContent.MaxTextBytes, timeout.Token));
+                await Protocol.WriteByteAsync(stream, 1, timeout.Token);
+
+                if (attempt == 0)
+                {
+                    using var receipt = new MemoryStream();
+                    await Segment.WriteSegmentAsync(receipt, key, nonce, Segment.IndexC,
+                        Protocol.ToJsonBytes(new TransferHeader
+                        {
+                            Type = "clipboard_applied",
+                            ClipboardFormat = header.ClipboardFormat,
+                            ClipboardRequestId = header.ClipboardRequestId,
+                            SenderDeviceId = recipientId,
+                            RecipientDeviceId = senderId,
+                        }), timeout.Token);
+                    capturedReceipt = receipt.ToArray();
+                }
+
+                // The second connection replays the exact signed receipt captured from the first.
+                await stream.WriteAsync(capturedReceipt, 0, capturedReceipt.Length, timeout.Token);
+                await stream.FlushAsync(timeout.Token);
+            }
+        });
+
+        Assert.Equal(1, await TransferClient.SendClipboardAsync(
+            "127.0.0.1", port, "sender", new ClipboardContent { Format = "text", Data = payloads[0] },
+            secret, null, timeout.Token, senderId, recipientId));
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => TransferClient.SendClipboardAsync(
+            "127.0.0.1", port, "sender", new ClipboardContent { Format = "text", Data = payloads[1] },
+            secret, null, timeout.Token, senderId, recipientId));
+        Assert.Contains("인증", error.Message);
+        await endpoint;
+
+        Assert.Equal(2, headers.Count);
+        Assert.NotEqual(headers[0].ClipboardRequestId, headers[1].ClipboardRequestId);
+        Assert.All(headers, header =>
+            Assert.Equal(KeyMaterial.NonceLength, Convert.FromBase64String(header.ClipboardRequestId).Length));
+    }
+
+    [Fact]
     public async Task SecuredSuccessWaitsForActualClipboardApplication()
     {
         const string secret = "receipt-secret";
@@ -256,7 +335,8 @@ public sealed class ClipboardTransferTests
             byte[] payload = Encoding.UTF8.GetBytes("untampered text");
             await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA, Protocol.ToJsonBytes(new TransferHeader
             {
-                Type = "clipboard", ClipboardFormat = "text", TotalSize = payload.Length,
+                Type = "clipboard", ClipboardFormat = "text",
+                ClipboardRequestId = Convert.ToBase64String(Crypto.NewNonce()), TotalSize = payload.Length,
             }), timeout.Token);
             Assert.Equal(Protocol.StatusAccepted, await Protocol.ReadByteAsync(stream, timeout.Token));
 
@@ -269,6 +349,45 @@ public sealed class ClipboardTransferTests
             Assert.Equal(0, applications);
         }
         finally { server.Stop(); DeleteRoot(root); }
+    }
+
+    [Fact]
+    public async Task SecuredClipboardRejectsInvalidRequestIdBeforeClipboardMutation()
+    {
+        const string secret = "request-id-secret";
+        var settings = new AppSettings();
+        SettingsStore.SetSecret(settings, secret);
+        int applications = 0;
+        var server = new TransferServer
+        {
+            GetSettings = () => settings,
+            ApplyClipboardAsync = (_, _) => { Interlocked.Increment(ref applications); return Task.CompletedTask; },
+        };
+        int port = FreePort();
+        server.Start(port);
+        try
+        {
+            string[] invalidIds =
+            {
+                "",
+                "not-base64",
+                Convert.ToBase64String(new byte[KeyMaterial.NonceLength - 1]),
+                Convert.ToBase64String(new byte[KeyMaterial.NonceLength]) + " ",
+            };
+            foreach (string requestId in invalidIds)
+            {
+                byte status = await SendHeaderAndReadStatusAsync(port, secret, new TransferHeader
+                {
+                    Type = "clipboard",
+                    ClipboardFormat = "text",
+                    ClipboardRequestId = requestId,
+                    TotalSize = 1,
+                });
+                Assert.Equal(Protocol.StatusRefused, status);
+            }
+            Assert.Equal(0, applications);
+        }
+        finally { server.Stop(); }
     }
 
     [Fact]
@@ -321,7 +440,7 @@ public sealed class ClipboardTransferTests
                 "127.0.0.1", port, "sender", new ClipboardContent
                 { Format = "text", Data = Encoding.UTF8.GetBytes("upgrade") },
                 null, null, CancellationToken.None));
-            Assert.Contains("1.8.0", error.Message);
+            Assert.Contains("1.8.1", error.Message);
             await oldPeer;
         }
         finally { listener.Stop(); }

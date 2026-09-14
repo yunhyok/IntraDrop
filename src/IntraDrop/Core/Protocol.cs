@@ -20,6 +20,7 @@ public class TransferHeader
     public long TotalSize { get; set; }
     public List<TransferItem> Items { get; set; } = new();
     public string ClipboardFormat { get; set; } = "";
+    public string ClipboardRequestId { get; set; } = "";
     public List<PeerHint> PeerHints { get; set; } = new();
     public List<string> RequestedDeviceIds { get; set; } = new();
 }
