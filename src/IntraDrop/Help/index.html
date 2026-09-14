@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IntraDrop 1.7.2 도움말</title>
+  <title>IntraDrop 1.8.0 도움말</title>
   <style>
     * { box-sizing:border-box; }
     header, main, section, figure, footer { display:block; }
@@ -32,9 +32,9 @@
   </style>
 </head>
 <body>
-<header><div><h1>IntraDrop 1.7.2 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
+<header><div><h1>IntraDrop 1.8.0 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
 <main>
-  <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
+  <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#clipboard">클립보드 전달</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
 
   <section id="prepare"><h2>1. 시작 전 준비</h2>
     <div class="step"><div class="num">1</div><div><h3>두 컴퓨터에 IntraDrop 설치</h3><p>보내는 컴퓨터와 받는 컴퓨터 모두에 같은 최신 버전을 설치하고 IntraDrop을 실행합니다.</p></div></div>
@@ -57,7 +57,15 @@
     <div class="note">받은 파일은 받는 컴퓨터의 설정에 지정된 다운로드 폴더에 저장됩니다. 큰 전송은 받는 쪽에서 수락을 요구할 수 있습니다.</div>
   </section>
 
-  <section id="settings"><h2>4. 설정과 보안</h2>
+  <section id="clipboard"><h2>4. 클립보드 전달</h2>
+    <ol><li>텍스트·이미지 또는 탐색기의 파일·폴더를 <strong>Ctrl+C</strong>로 복사합니다.</li><li>IntraDrop 트레이 아이콘 우클릭 → <strong>클립보드 전달</strong> → 등록된 목적 컴퓨터를 선택합니다.</li><li>받는 컴퓨터에서 <strong>클립보드 수신 완료</strong> 알림을 확인하고 원하는 앱이나 탐색기에서 <strong>Ctrl+V</strong>로 붙여넣습니다.</li></ol>
+    <figure class="shot"><img src="images/05-clipboard-menu.png" alt="IntraDrop 클립보드 전달 메뉴"><figcaption class="caption">클립보드 전달 오른쪽 하위 메뉴에서 등록된 목적 컴퓨터를 선택합니다.</figcaption></figure>
+    <div class="note"><strong>Windows 7·10·11 간 사용:</strong> 양쪽 모두 IntraDrop 1.8.0 이상을 설치합니다. 텍스트는 UTF-8 기준 1MB, 이미지는 PNG 기준 16MB 및 2,500만 픽셀까지 지원합니다. 빈 폴더를 포함해 파일·폴더 합계 10,000개까지 전달합니다.</div>
+    <p>받은 파일은 다운로드 폴더 아래 전송별 폴더에 저장됩니다. 같은 이름은 구분하며, 잘라내기 상태에서도 원본은 삭제하지 않습니다. 클립보드를 다른 앱이 사용해 복사에 실패하면 이미 받은 파일은 보관하고 실패 알림을 표시합니다. 큰 파일은 기존 설정에 따라 수락해야 합니다.</p>
+    <p>HTML·RTF 서식은 일반 텍스트로 전달합니다. 앱 전용 OLE 객체·가상 첨부 파일은 파일로 저장한 뒤 복사하세요. 연결점·심볼릭 링크는 실제 파일·폴더로 바꿔 선택하세요. Windows 알림 설정으로 풍선이 숨겨져도 수신 클립보드 등록은 동작합니다.</p>
+  </section>
+
+  <section id="settings"><h2>5. 설정과 보안</h2>
     <p>트레이 아이콘 우클릭 → <strong>설정</strong>에서 장치 이름, 다운로드 폴더, 수락 확인 크기, 포트, 공유 암호와 수신 허용 범위를 관리합니다.</p>
     <figure class="shot"><img src="images/04-settings.png" alt="IntraDrop 설정 창"><figcaption class="caption">설정 창: 모든 컴퓨터의 포트와 공유 암호를 동일하게 맞춥니다.</figcaption></figure>
     <table><thead><tr><th>설정</th><th>권장 사용법</th></tr></thead><tbody>
@@ -67,10 +75,10 @@
     </tbody></table>
   </section>
 
-  <section id="trouble"><h2>5. 연결되지 않을 때</h2><ul>
+  <section id="trouble"><h2>6. 연결되지 않을 때</h2><ul>
     <li>양쪽 컴퓨터에서 IntraDrop이 실행 중인지 확인합니다.</li><li>등록 주소, 포트, 공유 암호가 서로 맞는지 확인합니다.</li><li>컴퓨터 목록의 <strong>새로고침</strong>을 누릅니다.</li><li>Windows 방화벽에서 IntraDrop의 개인 네트워크 통신이 허용됐는지 확인합니다.</li><li>VLAN, 게스트 Wi-Fi, Wi-Fi 클라이언트 격리 환경에서는 장치 간 통신이 차단될 수 있습니다.</li>
   </ul></section>
-  <footer>IntraDrop 1.7.2 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
+  <footer>IntraDrop 1.8.0 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
 </main>
 </body>
 </html>

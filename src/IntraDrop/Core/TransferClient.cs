@@ -195,6 +195,74 @@ public static class TransferClient
             Items = files.Select(f => new TransferItem { Path = f.RelPath, Size = f.Size }).ToList(),
         };
 
+        await SendPayloadAsync(host, port, header, secret, progress, ct, files, null);
+        return files.Count;
+    }
+
+    public static async Task<int> SendClipboardAsync(
+        string host, int port, string senderName,
+        ClipboardContent content,
+        string? secret,
+        IProgress<TransferProgress>? progress,
+        CancellationToken ct,
+        string? senderDeviceId = null,
+        string? recipientDeviceId = null)
+    {
+        if (content == null) throw new ArgumentNullException(nameof(content));
+        string format = content.Format ?? "";
+        byte[]? data = null;
+        var files = new List<PayloadFile>();
+        var items = new List<TransferItem>();
+        int resultCount;
+        long totalSize;
+
+        if (format == "text" || format == "png")
+        {
+            if (content.Paths == null || content.Paths.Count != 0)
+                throw new InvalidOperationException("텍스트 또는 이미지 클립보드에는 파일 경로를 포함할 수 없습니다.");
+            data = content.Data?.ToArray() ?? throw new InvalidOperationException("클립보드 데이터가 없습니다.");
+            ClipboardContent.ValidateData(format, data);
+            resultCount = 1;
+            totalSize = data.LongLength;
+        }
+        else if (format == "files")
+        {
+            if (content.Data == null || content.Data.Length != 0)
+                throw new InvalidOperationException("파일 클립보드에는 별도 데이터를 포함할 수 없습니다.");
+            var manifest = CollectClipboardFiles(content.Paths);
+            files = manifest.Files;
+            items = manifest.Items;
+            resultCount = manifest.RootCount;
+            totalSize = manifest.TotalSize;
+        }
+        else
+        {
+            throw new InvalidOperationException("지원하지 않는 클립보드 형식입니다.");
+        }
+
+        var key = KeyMaterial.FromSecret(secret);
+        var header = new TransferHeader
+        {
+            Type = "clipboard",
+            ClipboardFormat = format,
+            SenderName = senderName,
+            SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
+            RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "",
+            TotalSize = totalSize,
+            Items = items,
+        };
+
+        await SendPayloadAsync(host, port, header, secret, progress, ct, files, data);
+        return resultCount;
+    }
+
+    private static async Task SendPayloadAsync(
+        string host, int port, TransferHeader header, string? secret,
+        IProgress<TransferProgress>? progress, CancellationToken ct,
+        IReadOnlyList<PayloadFile> files, byte[]? data)
+    {
+        var key = KeyMaterial.FromSecret(secret);
+
         using var tcp = new TcpClient();
         using (var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct))
         {
@@ -220,36 +288,52 @@ public static class TransferClient
             Protocol.ToJsonBytes(header), ct);
 
         stream.ReadIdleMs = AcceptWaitMs;
-        byte status = await Protocol.ReadByteAsync(stream, ct);
+        byte status;
+        try
+        {
+            status = await Protocol.ReadByteAsync(stream, ct);
+        }
+        catch (EndOfStreamException ex) when (header.Type == "clipboard")
+        {
+            throw new InvalidOperationException(
+                "클립보드 전달에는 양쪽 컴퓨터 모두 IntraDrop 1.8.0 이상이 필요합니다.", ex);
+        }
         if (status != Protocol.StatusAccepted)
             throw TransferStatusException.From(status);
 
         // 세그먼트 B = 모든 파일 바이트 연속 (헤더 Items 순서)
         stream.ReadIdleMs = AckWaitMs;
         using (var writer = await Segment.BeginWriteSegmentAsync(
-                   stream, key, nonce, Segment.IndexB, totalSize, ct))
+                   stream, key, nonce, Segment.IndexB, header.TotalSize, ct))
         {
-            long sentTotal = 0;
-            byte[] buffer = new byte[81920];
-            for (int i = 0; i < files.Count; i++)
+            if (data != null)
             {
-                var (fullPath, relPath, size) = files[i];
-                progress?.Report(new TransferProgress(relPath, i + 1, files.Count, sentTotal, totalSize));
-
-                using var fs = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                long remaining = size;
-                while (remaining > 0)
+                await writer.WriteAsync(data, 0, data.Length, ct);
+            }
+            else
+            {
+                long sentTotal = 0;
+                byte[] buffer = new byte[81920];
+                for (int i = 0; i < files.Count; i++)
                 {
-                    int toRead = (int)Math.Min(buffer.Length, remaining);
-                    int n = await fs.ReadAsync(buffer.AsMemory(0, toRead), ct);
-                    if (n == 0)
-                        throw new IOException($"전송 중 파일이 변경되었습니다: {relPath}");
+                    var file = files[i];
+                    progress?.Report(new TransferProgress(file.RelPath, i + 1, files.Count, sentTotal, header.TotalSize));
 
-                    await writer.WriteAsync(buffer, 0, n, ct);
+                    using var fs = new FileStream(file.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    long remaining = file.Size;
+                    while (remaining > 0)
+                    {
+                        int toRead = (int)Math.Min(buffer.Length, remaining);
+                        int n = await fs.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        if (n == 0)
+                            throw new IOException($"전송 중 파일이 변경되었습니다: {file.RelPath}");
 
-                    remaining -= n;
-                    sentTotal += n;
-                    progress?.Report(new TransferProgress(relPath, i + 1, files.Count, sentTotal, totalSize));
+                        await writer.WriteAsync(buffer, 0, n, ct);
+
+                        remaining -= n;
+                        sentTotal += n;
+                        progress?.Report(new TransferProgress(file.RelPath, i + 1, files.Count, sentTotal, header.TotalSize));
+                    }
                 }
             }
             await writer.CompleteAsync(ct);
@@ -257,23 +341,23 @@ public static class TransferClient
 
         byte ack = await Protocol.ReadByteAsync(stream, ct);
         if (ack != 1)
-            throw new IOException("상대방이 저장을 완료하지 못했습니다.");
-
-        return files.Count;
+            throw new IOException(header.Type == "clipboard"
+                ? "상대방이 클립보드 적용을 완료하지 못했습니다."
+                : "상대방이 저장을 완료하지 못했습니다.");
     }
 
     private static byte Flags(KeyMaterial? key) =>
         key != null ? Protocol.FlagSecured : Protocol.FlagPlain;
 
-    private static List<(string FullPath, string RelPath, long Size)> CollectFiles(IReadOnlyList<string> paths)
+    private static List<PayloadFile> CollectFiles(IReadOnlyList<string> paths)
     {
-        var result = new List<(string, string, long)>();
+        var result = new List<PayloadFile>();
         foreach (var raw in paths)
         {
             string path = Path.GetFullPath(raw);
             if (File.Exists(path))
             {
-                result.Add((path, Path.GetFileName(path)!, new FileInfo(path).Length));
+                result.Add(new PayloadFile(path, Path.GetFileName(path)!, new FileInfo(path).Length));
             }
             else if (Directory.Exists(path))
             {
@@ -282,10 +366,165 @@ public static class TransferClient
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
                 {
                     string rel = PathCompat.GetRelativePath(baseDir, f).Replace('\\', '/');
-                    result.Add((f, baseName + "/" + rel, new FileInfo(f).Length));
+                    result.Add(new PayloadFile(f, baseName + "/" + rel, new FileInfo(f).Length));
                 }
             }
         }
         return result;
+    }
+
+    private static ClipboardManifest CollectClipboardFiles(IReadOnlyList<string>? paths)
+    {
+        if (paths == null || paths.Count == 0)
+            throw new InvalidOperationException("클립보드에 보낼 파일이나 폴더가 없습니다.");
+        if (paths.Count > Protocol.MaxItemCount)
+            throw new InvalidOperationException($"한 번에 보낼 수 있는 항목은 {Protocol.MaxItemCount}개까지입니다.");
+
+        var selected = new List<SelectedSource>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string? raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw) || !Path.IsPathRooted(raw))
+                throw new InvalidOperationException("클립보드에 잘못된 파일 경로가 있습니다.");
+            string full = NormalizeSourcePath(raw);
+            if (!seen.Add(full)) throw new InvalidOperationException("클립보드에 중복된 파일 경로가 있습니다.");
+
+            FileAttributes attributes;
+            try { attributes = File.GetAttributes(full); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
+            { throw new InvalidOperationException($"파일이나 폴더를 찾을 수 없습니다: {raw}", ex); }
+            if ((attributes & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidOperationException($"바로 가기, 심볼릭 링크 또는 연결 지점은 보낼 수 없습니다: {raw}");
+            bool isDirectory = (attributes & FileAttributes.Directory) != 0;
+            string name = Path.GetFileName(full);
+            if (name.Length == 0) throw new InvalidOperationException("드라이브 루트는 클립보드로 보낼 수 없습니다.");
+            selected.Add(new SelectedSource(full, name, isDirectory));
+        }
+
+        var selectedDirectories = selected.Where(item => item.IsDirectory)
+            .Select(item => item.FullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in selected)
+        {
+            string? parent = Path.GetDirectoryName(source.FullPath);
+            while (!string.IsNullOrEmpty(parent))
+            {
+                if (selectedDirectories.Contains(parent))
+                    throw new InvalidOperationException("함께 선택한 폴더 안의 항목이 중복으로 포함되어 있습니다.");
+                string? next = Path.GetDirectoryName(parent);
+                if (string.Equals(next, parent, StringComparison.OrdinalIgnoreCase)) break;
+                parent = next;
+            }
+        }
+
+        var manifest = new ClipboardManifest();
+        var rootNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in selected)
+        {
+            string rootName = MakeUniqueRootName(source.Name, source.IsDirectory, rootNames);
+            manifest.RootCount++;
+            if (!source.IsDirectory)
+            {
+                AddClipboardFile(manifest, source.FullPath, rootName);
+                continue;
+            }
+
+            AddClipboardDirectory(manifest, rootName);
+            var pending = new Stack<(string FullPath, string RelPath)>();
+            pending.Push((source.FullPath, rootName));
+            while (pending.Count != 0)
+            {
+                var current = pending.Pop();
+                foreach (string entry in Directory.EnumerateFileSystemEntries(current.FullPath))
+                {
+                    FileAttributes attributes = File.GetAttributes(entry);
+                    if ((attributes & FileAttributes.ReparsePoint) != 0)
+                        throw new InvalidOperationException($"폴더 안의 바로 가기, 심볼릭 링크 또는 연결 지점은 보낼 수 없습니다: {entry}");
+                    string relPath = current.RelPath + "/" + Path.GetFileName(entry);
+                    if ((attributes & FileAttributes.Directory) != 0)
+                    {
+                        AddClipboardDirectory(manifest, relPath);
+                        pending.Push((entry, relPath));
+                    }
+                    else
+                    {
+                        AddClipboardFile(manifest, entry, relPath);
+                    }
+                }
+            }
+        }
+        return manifest;
+    }
+
+    private static void AddClipboardDirectory(ClipboardManifest manifest, string relPath)
+    {
+        EnsureManifestCapacity(manifest);
+        manifest.Items.Add(new TransferItem { Path = relPath, IsDirectory = true });
+    }
+
+    private static void AddClipboardFile(ClipboardManifest manifest, string fullPath, string relPath)
+    {
+        EnsureManifestCapacity(manifest);
+        long size = new FileInfo(fullPath).Length;
+        try { manifest.TotalSize = checked(manifest.TotalSize + size); }
+        catch (OverflowException ex) { throw new InvalidOperationException("클립보드 파일 크기의 합이 너무 큽니다.", ex); }
+        manifest.Items.Add(new TransferItem { Path = relPath, Size = size });
+        manifest.Files.Add(new PayloadFile(fullPath, relPath, size));
+    }
+
+    private static void EnsureManifestCapacity(ClipboardManifest manifest)
+    {
+        if (manifest.Items.Count >= Protocol.MaxItemCount)
+            throw new InvalidOperationException($"한 번에 보낼 수 있는 파일과 폴더는 {Protocol.MaxItemCount}개까지입니다.");
+    }
+
+    private static string NormalizeSourcePath(string path)
+    {
+        string full = Path.GetFullPath(path);
+        string root = Path.GetPathRoot(full) ?? "";
+        return full.Length > root.Length
+            ? full.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            : full;
+    }
+
+    private static string MakeUniqueRootName(string original, bool isDirectory, HashSet<string> used)
+    {
+        if (used.Add(original)) return original;
+        string stem = original, extension = "";
+        if (!isDirectory)
+        {
+            int dot = original.LastIndexOf('.');
+            if (dot > 0) { stem = original.Substring(0, dot); extension = original.Substring(dot); }
+        }
+        for (int i = 2; ; i++)
+        {
+            string candidate = $"{stem} ({i}){extension}";
+            if (used.Add(candidate)) return candidate;
+        }
+    }
+
+    private sealed class PayloadFile
+    {
+        public PayloadFile(string fullPath, string relPath, long size)
+        { FullPath = fullPath; RelPath = relPath; Size = size; }
+        public string FullPath { get; }
+        public string RelPath { get; }
+        public long Size { get; }
+    }
+
+    private sealed class SelectedSource
+    {
+        public SelectedSource(string fullPath, string name, bool isDirectory)
+        { FullPath = fullPath; Name = name; IsDirectory = isDirectory; }
+        public string FullPath { get; }
+        public string Name { get; }
+        public bool IsDirectory { get; }
+    }
+
+    private sealed class ClipboardManifest
+    {
+        public List<TransferItem> Items { get; } = new();
+        public List<PayloadFile> Files { get; } = new();
+        public long TotalSize { get; set; }
+        public int RootCount { get; set; }
     }
 }

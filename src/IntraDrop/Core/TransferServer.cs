@@ -36,6 +36,9 @@ public class TransferServer
     /// <summary>임계 크기 이상 수신 요청. UI 스레드에서 수락 여부를 결정해 돌려준다.</summary>
     public Func<TransferHeader, bool>? ConfirmRequest { get; set; }
 
+    /// <summary>검증과 파일 저장이 끝난 클립보드 데이터를 UI STA 스레드에 적용한다.</summary>
+    public Func<string, ClipboardContent, Task>? ApplyClipboardAsync { get; set; }
+
     /// <summary>자동 등록으로 peers 목록이 바뀐 뒤 저장을 맡길 콜백.</summary>
     public Action? SavePeers { get; set; }
 
@@ -181,7 +184,7 @@ public class TransferServer
                 return;
             }
 
-            if (header.Type != "transfer")
+            if (header.Type != "transfer" && header.Type != "clipboard")
                 return;
 
             if (!string.IsNullOrWhiteSpace(header.RecipientDeviceId) &&
@@ -191,9 +194,13 @@ public class TransferServer
                 return;
             }
 
-            await ReceiveTransferAsync(stream, header, segmentKey, nonce, remote, settings, ct);
+            if (header.Type == "clipboard")
+                await ReceiveClipboardAsync(stream, header, segmentKey, nonce, remote, settings, ct);
+            else
+                await ReceiveTransferAsync(stream, header, segmentKey, nonce, remote, settings, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
         {
             // 헤더도 받기 전에 끊긴 연결(포트 스캔, 상태 확인 등)은 조용히 무시
             if (headerReceived)
@@ -327,6 +334,268 @@ public class TransferServer
 
     // ── transfer ─────────────────────────────────────────────────────────
 
+    private async Task ReceiveClipboardAsync(
+        TimeoutStream stream, TransferHeader header, KeyMaterial? key, byte[] nonce,
+        IPAddress? remote, AppSettings settings, CancellationToken ct)
+    {
+        string format = header.ClipboardFormat ?? "";
+        List<ClipboardManifestItem>? manifest = null;
+        long expected;
+
+        if (format == "text" || format == "png")
+        {
+            long limit = format == "text" ? ClipboardContent.MaxTextBytes : ClipboardContent.MaxImageBytes;
+            if (header.Items == null || header.Items.Count != 0 || header.TotalSize <= 0 || header.TotalSize > limit)
+            {
+                await RejectAsync(stream, Protocol.StatusRefused, ct);
+                return;
+            }
+            expected = header.TotalSize;
+        }
+        else if (format == "files")
+        {
+            if (!TryBuildClipboardManifest(header, out manifest, out expected))
+            {
+                await RejectAsync(stream, Protocol.StatusRefused, ct);
+                return;
+            }
+        }
+        else
+        {
+            await RejectAsync(stream, Protocol.StatusRefused, ct);
+            return;
+        }
+
+        if (!await AcceptTransferAsync(stream, header, key, remote, settings, expected,
+                requireDiskSpace: format == "files", ct))
+            return;
+
+        stream.ReadIdleMs = DataIdleMs;
+        if (format == "files")
+        {
+            await ReceiveClipboardFilesAsync(stream, header, key, nonce, settings, manifest!, expected, ct);
+            return;
+        }
+
+        byte[] data;
+        try
+        {
+            int limit = format == "text" ? ClipboardContent.MaxTextBytes : ClipboardContent.MaxImageBytes;
+            data = await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexB, limit, ct);
+            if (data.LongLength != expected) throw new InvalidDataException("클립보드 데이터 크기가 헤더와 다릅니다.");
+            ClipboardContent.ValidateData(format, data);
+        }
+        catch
+        {
+            await TryWriteClipboardFailureAsync(stream, ct);
+            throw;
+        }
+
+        await ApplyClipboardAndAcknowledgeAsync(stream,
+            string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName,
+            new ClipboardContent { Format = format, Data = data }, ct);
+    }
+
+    private async Task ReceiveClipboardFilesAsync(
+        TimeoutStream stream, TransferHeader header, KeyMaterial? key, byte[] nonce,
+        AppSettings settings, List<ClipboardManifestItem> manifest, long expected, CancellationToken ct)
+    {
+        string folder = Path.GetFullPath(settings.DownloadFolder);
+        Directory.CreateDirectory(folder);
+        string batchId = Guid.NewGuid().ToString("N");
+        string stage = Path.Combine(folder, ".intradrop-" + batchId + ".part");
+        string batch = Path.Combine(folder, "Clipboard-" + batchId);
+        Directory.CreateDirectory(stage);
+        IReadOnlyList<string>? receivedRoots = null;
+        try
+        {
+            using var reader = await Segment.ReadSegmentHeaderAsync(
+                stream, key, nonce, Segment.IndexB, expected, ct);
+            if (reader.PlainLength != expected)
+                throw new InvalidDataException("클립보드 파일 크기가 헤더와 다릅니다.");
+
+            byte[] buffer = new byte[81920];
+            foreach (var item in manifest)
+            {
+                string destination = Path.Combine(stage, item.RelPath);
+                if (item.IsDirectory)
+                {
+                    Directory.CreateDirectory(destination);
+                    continue;
+                }
+
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                using var file = new FileStream(destination, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+                long remaining = item.Size;
+                while (remaining > 0)
+                {
+                    int read = await reader.ReadAsync(buffer, 0, (int)Math.Min(buffer.Length, remaining), ct);
+                    await file.WriteAsync(buffer.AsMemory(0, read), ct);
+                    remaining -= read;
+                }
+            }
+            await reader.CompleteAsync(ct);
+
+            Directory.Move(stage, batch);
+            stage = "";
+            receivedRoots = manifest.Where(item => item.IsRoot)
+                .Select(item => Path.Combine(batch, item.RelPath)).ToArray();
+        }
+        catch
+        {
+            try { if (stage.Length != 0 && Directory.Exists(stage)) Directory.Delete(stage, true); } catch { }
+            await TryWriteClipboardFailureAsync(stream, ct);
+            throw;
+        }
+
+        await ApplyClipboardAndAcknowledgeAsync(stream,
+            string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName,
+            new ClipboardContent { Format = "files", Paths = receivedRoots }, ct);
+    }
+
+    private async Task ApplyClipboardAndAcknowledgeAsync(
+        TimeoutStream stream, string sender, ClipboardContent content, CancellationToken ct)
+    {
+        try
+        {
+            var apply = ApplyClipboardAsync ?? throw new InvalidOperationException("클립보드를 적용할 수 없습니다.");
+            await apply(sender, content);
+        }
+        catch
+        {
+            await TryWriteClipboardFailureAsync(stream, ct);
+            throw;
+        }
+        await Protocol.WriteByteAsync(stream, 1, ct);
+    }
+
+    private static async Task TryWriteClipboardFailureAsync(TimeoutStream stream, CancellationToken ct)
+    {
+        try { await Protocol.WriteByteAsync(stream, 0, ct); } catch { }
+    }
+
+    private async Task<bool> AcceptTransferAsync(
+        TimeoutStream stream, TransferHeader header, KeyMaterial? key, IPAddress? remote,
+        AppSettings settings, long expected, bool requireDiskSpace, CancellationToken ct)
+    {
+        string sender = string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName;
+        if (settings.AcceptFromRegisteredOnly)
+        {
+            bool known = key != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId)
+                ? remote != null && IsRegisteredDevice(settings, header.SenderDeviceId, remote)
+                : remote != null && await IsRegisteredAsync(settings, remote);
+            if (!known)
+            {
+                await RejectAsync(stream, Protocol.StatusNotRegistered, ct);
+                return false;
+            }
+        }
+
+        if (requireDiskSpace && !HasEnoughDiskSpace(settings.DownloadFolder, expected))
+        {
+            await RejectAsync(stream, Protocol.StatusRefused, ct);
+            TransferFailed?.Invoke(sender, "저장 공간이 부족합니다.");
+            return false;
+        }
+
+        if (expected >= settings.ConfirmThresholdBytes && !(ConfirmRequest?.Invoke(header) ?? false))
+        {
+            await RejectAsync(stream, Protocol.StatusRejected, ct);
+            TransferRejected?.Invoke(sender, expected);
+            return false;
+        }
+
+        await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
+        return true;
+    }
+
+    private static bool HasEnoughDiskSpace(string folder, long expected)
+    {
+        try
+        {
+            string root = Path.GetPathRoot(Path.GetFullPath(folder)) ?? "C:\\";
+            long available = new DriveInfo(root).AvailableFreeSpace;
+            return expected <= available && available - expected >= (64L << 20);
+        }
+        catch { return true; }
+    }
+
+    private static bool TryBuildClipboardManifest(
+        TransferHeader header, out List<ClipboardManifestItem>? manifest, out long expected)
+    {
+        manifest = null;
+        expected = 0;
+        if (header.Items == null || header.Items.Count == 0 || header.Items.Count > Protocol.MaxItemCount)
+            return false;
+
+        var result = new List<ClipboardManifestItem>(header.Items.Count);
+        var kinds = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var item in header.Items)
+            {
+                if (item == null || !TryValidateClipboardRelativePath(item.Path, out string? relativePath))
+                    return false;
+                if (kinds.ContainsKey(relativePath)) return false;
+                kinds.Add(relativePath, item.IsDirectory);
+                if (item.IsDirectory)
+                {
+                    if (item.Size != 0) return false;
+                }
+                else
+                {
+                    if (item.Size < 0) return false;
+                    expected = checked(expected + item.Size);
+                }
+                result.Add(new ClipboardManifestItem(relativePath, item.Size, item.IsDirectory));
+            }
+        }
+        catch (OverflowException) { return false; }
+
+        if (expected != header.TotalSize) return false;
+        foreach (var item in result)
+        {
+            string[] parts = item.RelPath.Split(Path.DirectorySeparatorChar);
+            string parent = parts[0];
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (!kinds.TryGetValue(parent, out bool isDirectory) || !isDirectory) return false;
+                parent = Path.Combine(parent, parts[i]);
+            }
+        }
+        if (!result.Any(item => item.IsRoot)) return false;
+        manifest = result;
+        return true;
+    }
+
+    private static bool TryValidateClipboardRelativePath(string? raw, out string relativePath)
+    {
+        relativePath = "";
+        if (raw == null || string.IsNullOrWhiteSpace(raw) || raw.Length > 32767 || raw.IndexOf('\0') >= 0 ||
+            raw.IndexOf('\\') >= 0 || raw.IndexOf(':') >= 0 || raw[0] == '/' || Path.IsPathRooted(raw))
+            return false;
+        string[] parts = raw.Split(new[] { '/' }, StringSplitOptions.None);
+        if (parts.Length == 0) return false;
+        char[] invalid = Path.GetInvalidFileNameChars();
+        foreach (string part in parts)
+        {
+            if (part.Length == 0 || part.Length > 255 || part is "." or ".." ||
+                !string.Equals(part, part.TrimEnd(' ', '.'), StringComparison.Ordinal) ||
+                part.IndexOfAny(invalid) >= 0 || IsReservedWindowsName(part))
+                return false;
+        }
+        relativePath = Path.Combine(parts);
+        return true;
+    }
+
+    private static bool IsReservedWindowsName(string part)
+    {
+        string name = part.Split('.')[0].ToUpperInvariant();
+        if (name is "CON" or "PRN" or "AUX" or "NUL" or "CONIN$" or "CONOUT$" or "CLOCK$") return true;
+        return name.Length == 4 && name[3] >= '1' && name[3] <= '9' &&
+               (name.StartsWith("COM", StringComparison.Ordinal) || name.StartsWith("LPT", StringComparison.Ordinal));
+    }
+
     private async Task ReceiveTransferAsync(
         TimeoutStream stream, TransferHeader header, KeyMaterial? key, byte[] nonce,
         IPAddress? remote, AppSettings settings, CancellationToken ct)
@@ -354,46 +623,9 @@ public class TransferServer
         if (expected != header.TotalSize)
             throw new InvalidDataException("전송 크기가 헤더와 다릅니다.");
 
-        // 등록된 컴퓨터에서만 받기 (register 에는 적용하지 않는다)
-        if (settings.AcceptFromRegisteredOnly)
-        {
-            bool known = key != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId)
-                ? remote != null && IsRegisteredDevice(settings, header.SenderDeviceId, remote)
-                : remote != null && await IsRegisteredAsync(settings, remote);
-            if (!known)
-            {
-                await RejectAsync(stream, Protocol.StatusNotRegistered, ct);
-                return;
-            }
-        }
-
-        // 디스크 여유 공간 확인
-        bool enoughSpace = true;
-        try
-        {
-            string root = Path.GetPathRoot(Path.GetFullPath(settings.DownloadFolder)) ?? "C:\\";
-            long available = new DriveInfo(root).AvailableFreeSpace;
-            if (expected > available || available - expected < (64L << 20))
-                enoughSpace = false;
-        }
-        catch { /* 확인 불가 시 계속 진행 */ }
-
-        if (!enoughSpace)
-        {
-            await RejectAsync(stream, Protocol.StatusRefused, ct);
-            TransferFailed?.Invoke(sender, "저장 공간이 부족합니다.");
+        if (!await AcceptTransferAsync(stream, header, key, remote, settings, expected,
+                requireDiskSpace: true, ct))
             return;
-        }
-
-        // 임계 크기 이상이면 사용자 수락 필요
-        if (expected >= settings.ConfirmThresholdBytes && !(ConfirmRequest?.Invoke(header) ?? false))
-        {
-            await RejectAsync(stream, Protocol.StatusRejected, ct);
-            TransferRejected?.Invoke(sender, expected);
-            return;
-        }
-
-        await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
 
         string folder = settings.DownloadFolder;
         Directory.CreateDirectory(folder);
@@ -583,4 +815,14 @@ public class TransferServer
 
     private static bool IsFree(string path, HashSet<string> reserved) =>
         !reserved.Contains(path) && !File.Exists(path) && !Directory.Exists(path);
+
+    private sealed class ClipboardManifestItem
+    {
+        public ClipboardManifestItem(string relPath, long size, bool isDirectory)
+        { RelPath = relPath; Size = size; IsDirectory = isDirectory; }
+        public string RelPath { get; }
+        public long Size { get; }
+        public bool IsDirectory { get; }
+        public bool IsRoot => RelPath.IndexOf(Path.DirectorySeparatorChar) < 0;
+    }
 }

@@ -8,6 +8,7 @@ public class TransferItem
 {
     public string Path { get; set; } = "";   // '/' 구분 상대 경로
     public long Size { get; set; }
+    public bool IsDirectory { get; set; }
 }
 
 public class TransferHeader
@@ -18,6 +19,7 @@ public class TransferHeader
     public string RecipientDeviceId { get; set; } = "";
     public long TotalSize { get; set; }
     public List<TransferItem> Items { get; set; } = new();
+    public string ClipboardFormat { get; set; } = "";
     public List<PeerHint> PeerHints { get; set; } = new();
     public List<string> RequestedDeviceIds { get; set; } = new();
 }
