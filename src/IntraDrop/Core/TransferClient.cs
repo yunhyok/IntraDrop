@@ -344,6 +344,16 @@ public static class TransferClient
             throw new IOException(header.Type == "clipboard"
                 ? "상대방이 클립보드 적용을 완료하지 못했습니다."
                 : "상대방이 저장을 완료하지 못했습니다.");
+        if (header.Type == "clipboard" && key != null)
+        {
+            var receipt = Protocol.FromJsonBytes<TransferHeader>(await Segment.ReadSegmentAsync(
+                stream, key, nonce, Segment.IndexC, 4096, ct));
+            if (receipt.Type != "clipboard_applied" || receipt.ClipboardFormat != header.ClipboardFormat ||
+                !string.Equals(receipt.RecipientDeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(header.RecipientDeviceId) &&
+                 !string.Equals(receipt.SenderDeviceId, header.RecipientDeviceId, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidDataException("상대방의 클립보드 완료 응답을 인증할 수 없습니다.");
+        }
     }
 
     private static byte Flags(KeyMaterial? key) =>

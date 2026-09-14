@@ -391,9 +391,8 @@ public class TransferServer
             throw;
         }
 
-        await ApplyClipboardAndAcknowledgeAsync(stream,
-            string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName,
-            new ClipboardContent { Format = format, Data = data }, ct);
+        await ApplyClipboardAndAcknowledgeAsync(stream, header,
+            new ClipboardContent { Format = format, Data = data }, key, nonce, settings, ct);
     }
 
     private async Task ReceiveClipboardFilesAsync(
@@ -448,18 +447,18 @@ public class TransferServer
             throw;
         }
 
-        await ApplyClipboardAndAcknowledgeAsync(stream,
-            string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName,
-            new ClipboardContent { Format = "files", Paths = receivedRoots }, ct);
+        await ApplyClipboardAndAcknowledgeAsync(stream, header,
+            new ClipboardContent { Format = "files", Paths = receivedRoots }, key, nonce, settings, ct);
     }
 
     private async Task ApplyClipboardAndAcknowledgeAsync(
-        TimeoutStream stream, string sender, ClipboardContent content, CancellationToken ct)
+        TimeoutStream stream, TransferHeader header, ClipboardContent content,
+        KeyMaterial? key, byte[] nonce, AppSettings settings, CancellationToken ct)
     {
         try
         {
             var apply = ApplyClipboardAsync ?? throw new InvalidOperationException("클립보드를 적용할 수 없습니다.");
-            await apply(sender, content);
+            await apply(string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName, content);
         }
         catch
         {
@@ -467,6 +466,12 @@ public class TransferServer
             throw;
         }
         await Protocol.WriteByteAsync(stream, 1, ct);
+        if (key != null)
+            await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.ToJsonBytes(new TransferHeader
+            {
+                Type = "clipboard_applied", ClipboardFormat = header.ClipboardFormat,
+                SenderDeviceId = settings.DeviceId, RecipientDeviceId = header.SenderDeviceId,
+            }), ct);
     }
 
     private static async Task TryWriteClipboardFailureAsync(TimeoutStream stream, CancellationToken ct)

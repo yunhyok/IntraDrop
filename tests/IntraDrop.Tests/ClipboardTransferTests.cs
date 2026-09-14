@@ -11,6 +11,55 @@ namespace IntraDrop.Tests;
 
 public sealed class ClipboardTransferTests
 {
+    [Fact]
+    public async Task ForgedRawSuccessCannotAcknowledgeSecuredClipboard()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var fake = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            using var stream = client.GetStream();
+            await Protocol.ReadMagicAsync(stream, timeout.Token);
+            await stream.WriteAsync(new byte[KeyMaterial.NonceLength], timeout.Token);
+            // This endpoint has no shared key. Raw acceptance/completion must not suffice.
+            await stream.WriteAsync(new byte[] { 1, 1 }, timeout.Token);
+            await Task.Delay(500, timeout.Token);
+        });
+        await Assert.ThrowsAnyAsync<IOException>(() => TransferClient.SendClipboardAsync(
+            "127.0.0.1", port, "sender", new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("verify receipt") },
+            "secret-never-known-by-fake", null, timeout.Token));
+        await fake;
+    }
+
+    [Fact]
+    public async Task SecuredSuccessWaitsForActualClipboardApplication()
+    {
+        const string secret = "receipt-secret";
+        var settings = new AppSettings();
+        SettingsStore.SetSecret(settings, secret);
+        var entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var applied = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var server = new TransferServer { GetSettings = () => settings,
+            ApplyClipboardAsync = (_, _) => { entered.TrySetResult(true); return applied.Task; } };
+        int port = FreePort();
+        server.Start(port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var send = TransferClient.SendClipboardAsync("127.0.0.1", port, "sender",
+                new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("await apply") },
+                secret, null, timeout.Token, Guid.NewGuid().ToString("N"), settings.DeviceId);
+            await entered.Task.WaitAsync(timeout.Token);
+            Assert.False(send.IsCompleted);
+            applied.SetResult(true);
+            Assert.Equal(1, await send);
+        }
+        finally { applied.TrySetResult(true); server.Stop(); }
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("shared-secret")]
