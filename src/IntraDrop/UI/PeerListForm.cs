@@ -29,6 +29,7 @@ public class PeerListForm : Form
             FullRowSelect = true,
             MultiSelect = false,
             HideSelection = false,
+            ShowItemToolTips = true,
         };
         _list.Columns.Add("별명", 150);
         _list.Columns.Add("주소(IP)", 130);
@@ -56,7 +57,7 @@ public class PeerListForm : Form
         {
             Dock = DockStyle.Bottom,
             AutoSize = true,
-            Text = "컴퓨터를 더블클릭하면 보내기 창이 열립니다.",
+            Text = "더블클릭: 보내기 · 마우스를 올리면 컴퓨터 이름과 장치 ID 확인",
             ForeColor = SystemColors.GrayText,
             Padding = new Padding(8, 2, 3, 2),
         };
@@ -101,6 +102,7 @@ public class PeerListForm : Form
             var item = new ListViewItem(new[] { peer.Nickname, peer.Host, "확인 중..." })
             {
                 Tag = peer,
+                ToolTipText = IdentityToolTip(peer),
             };
             _list.Items.Add(item);
         }
@@ -109,6 +111,9 @@ public class PeerListForm : Form
 
     private PeerInfo? SelectedPeer =>
         _list.SelectedItems.Count > 0 ? (PeerInfo)_list.SelectedItems[0].Tag! : null;
+
+    private static string IdentityToolTip(PeerInfo peer) =>
+        $"컴퓨터 이름: {(string.IsNullOrWhiteSpace(peer.ComputerName) ? "미확인" : peer.ComputerName)}\n장치 ID: {(string.IsNullOrWhiteSpace(peer.DeviceId) ? "미인증" : peer.DeviceId)}";
 
     private void AddPeer()
     {
@@ -153,7 +158,7 @@ public class PeerListForm : Form
             if (!string.Equals(peer.Host.Trim(), savedHost, StringComparison.OrdinalIgnoreCase)) return;
             if (reply != null && !string.IsNullOrWhiteSpace(reply.SenderDeviceId) && string.IsNullOrWhiteSpace(expectedId))
             {
-                if (_ctx.PeerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName)) _ctx.SavePeers();
+                if (_ctx.PeerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName, reply.ComputerName)) _ctx.SavePeers();
             }
         }
         catch
@@ -164,6 +169,7 @@ public class PeerListForm : Form
         if (IsDisposed) return;
         var item = _list.Items.Cast<ListViewItem>().FirstOrDefault(i => ReferenceEquals(i.Tag, peer));
         if (item == null || item.ListView == null) return;
+        item.ToolTipText = IdentityToolTip(peer);
         item.SubItems[2].Text += " · 상대방에 등록됨";
     }
 
@@ -184,6 +190,21 @@ public class PeerListForm : Form
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
         bool hostChanged = !string.Equals(peer.Host?.Trim(), dlg.Result!.Host.Trim(), StringComparison.OrdinalIgnoreCase);
+        if (hostChanged && string.IsNullOrWhiteSpace(peer.DeviceId))
+        {
+            var duplicates = _ctx.PeerRegistry.Snapshot().Where(p =>
+                string.Equals(p.Host, dlg.Result!.Host.Trim(), StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(p.DeviceId)).ToList();
+            if (duplicates.Count == 1)
+            {
+                var known = duplicates[0];
+                if (MessageBox.Show(this,
+                    $"이 주소에는 '{known.Nickname}' 컴퓨터가 이미 등록되어 있습니다.\n{IdentityToolTip(known)}\n\n기존 '{peer.Nickname}' 항목과 같은 컴퓨터인가요?\n인증 후 하나로 합치고 별명 '{dlg.Result!.Nickname}'을 유지합니다.",
+                    AppInfo.DisplayName, MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+                    RebindPairedPeerAsync(peer, dlg.Result!.Nickname, dlg.Result!.Host.Trim(), known.DeviceId);
+                return;
+            }
+        }
         if (hostChanged && !string.IsNullOrWhiteSpace(peer.DeviceId))
         {
             RebindPairedPeerAsync(peer, dlg.Result!.Nickname, dlg.Result!.Host.Trim());
@@ -200,7 +221,7 @@ public class PeerListForm : Form
         if (hostChanged) RegisterWithPeerAsync(peer);
     }
 
-    private async void RebindPairedPeerAsync(PeerInfo peer, string nickname, string newHost)
+    private async void RebindPairedPeerAsync(PeerInfo peer, string nickname, string newHost, string? mergeDeviceId = null)
     {
         var settings = _ctx.Settings;
         var state = SettingsStore.ReadSecret(settings);
@@ -209,14 +230,20 @@ public class PeerListForm : Form
             MessageBox.Show(this, "기존 장치의 주소를 바꾸려면 복호화 가능한 공유 암호가 필요합니다.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return;
         }
-        string oldHost = peer.Host, expectedId = peer.DeviceId;
+        string oldHost = peer.Host, expectedId = mergeDeviceId ?? peer.DeviceId;
         try
         {
             var reply = await TransferClient.RegisterAsync(newHost, settings.Port, settings.DeviceName, state.Secret,
                 senderDeviceId: settings.DeviceId, recipientDeviceId: expectedId);
             if (reply == null || !string.Equals(reply.SenderDeviceId, expectedId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("상대 장치 ID 검증에 실패했습니다.");
-            if (!_ctx.PeerRegistry.TryVerifiedHostUpdate(expectedId, oldHost, newHost, nickname))
+            var currentSecret = SettingsStore.ReadSecret(settings);
+            if (!currentSecret.IsAvailable || currentSecret.Secret != state.Secret)
+                throw new InvalidOperationException("인증 중 공유 암호가 변경되었습니다. 다시 시도하세요.");
+            bool updated = mergeDeviceId != null
+                ? _ctx.PeerRegistry.TryMergeLegacyPeer(peer, oldHost, expectedId, newHost, nickname, reply.ComputerName)
+                : _ctx.PeerRegistry.TryVerifiedHostUpdate(expectedId, oldHost, newHost, nickname, reply.ComputerName);
+            if (!updated)
                 throw new InvalidOperationException("주소가 다른 컴퓨터에 등록되었거나 목록이 변경되었습니다.");
             _ctx.SavePeers(); ReloadList(); RefreshStatusAsync();
         }
@@ -273,6 +300,9 @@ public class PeerListForm : Form
             var (item, name) = await task;
             if (IsDisposed || generation != _refreshGeneration) return;
             if (item.ListView == null) continue;
+            var peer = (PeerInfo)item.Tag!;
+            item.SubItems[1].Text = peer.Host;
+            item.ToolTipText = IdentityToolTip(peer);
             item.SubItems[2].Text = name != null ? $"온라인 ({name})" : "오프라인";
             item.ForeColor = name != null ? Color.DarkGreen : SystemColors.GrayText;
         }

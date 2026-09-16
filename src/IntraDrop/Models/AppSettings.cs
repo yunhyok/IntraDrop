@@ -6,6 +6,8 @@ public class PeerInfo
     public string Host { get; set; } = "";
     /// <summary>Stable authenticated device identity (v1.3). Empty means legacy v1.2 peer.</summary>
     public string DeviceId { get; set; } = "";
+    /// <summary>Authenticated Windows computer name; descriptive only, never the identity key.</summary>
+    public string ComputerName { get; set; } = "";
     public DateTime? LastVerifiedUtc { get; set; }
 }
 

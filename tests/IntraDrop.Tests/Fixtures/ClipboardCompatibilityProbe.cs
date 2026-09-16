@@ -27,7 +27,8 @@ internal static class ClipboardCompatibilityProbe
         settings.Peers.Add(new PeerInfo { Nickname = "검증용 수신 PC", Host = mode == "receive" ? "127.0.0.1" : "127.0.0.2",
             DeviceId = mode == "receive" ? "11111111111111111111111111111111" : "22222222222222222222222222222222" });
         SettingsStore.SetSecret(settings, "clipboard-local-smoke-only");
-        var server = new TransferServer { GetSettings = () => settings };
+        var server = new TransferServer { GetSettings = () => settings, SavePeers = () => { } };
+        server.TransferFailed += (_, reason) => File.AppendAllText(Path.Combine(root, "transfer-errors.txt"), reason + "\n");
         var original = mode == "receive" ? null : Clipboard.GetDataObject();
         using var tray = new NotifyIcon { Text = AppInfo.DisplayName + " 검증", Icon = SystemIcons.Application, Visible = true };
         using var lifetime = new CancellationTokenSource();
@@ -46,6 +47,9 @@ internal static class ClipboardCompatibilityProbe
                 {
                     server.ApplyClipboardAsync = async (sender, content) =>
                     {
+                        var peer = settings.Peers.Single();
+                        if (peer.Nickname != "검증용 수신 PC" || peer.ComputerName != Environment.MachineName ||
+                            peer.DeviceId != "11111111111111111111111111111111") throw new Exception("Stored peer identity mismatch");
                         await (Task)typeof(TrayApplicationContext).GetMethod("OnClipboardReceivedAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, new object[] { sender, content })!;
                         var applied = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
                         form.BeginInvoke(new Action(() =>
@@ -83,6 +87,12 @@ internal static class ClipboardCompatibilityProbe
                     form.Controls.Add(button);
                     return;
                 }
+                var registered = await TransferClient.RegisterAsync("127.0.0.2", port, settings.DeviceName, "clipboard-local-smoke-only",
+                    senderDeviceId: settings.DeviceId, recipientDeviceId: settings.Peers[0].DeviceId);
+                var identity = await TransferClient.RediscoverAsync("127.0.0.2", port, settings.DeviceName, settings.DeviceId,
+                    settings.Peers[0].DeviceId, "clipboard-local-smoke-only");
+                if (registered?.ComputerName != Environment.MachineName || identity.ComputerName != Environment.MachineName ||
+                    identity.SenderDeviceId != settings.Peers[0].DeviceId) throw new Exception("Handshake identity mismatch");
                 var contents = new List<ClipboardContent> { new() { Format = "text", Data = Encoding.UTF8.GetBytes(text.Text) } };
                 using (var bitmap = new Bitmap(40, 20))
                 {
@@ -105,7 +115,7 @@ internal static class ClipboardCompatibilityProbe
                 }
                 var files = Directory.GetFiles(settings.DownloadFolder, "*.txt", SearchOption.AllDirectories);
                 if (files.Length != 2 || !files.Any(p => File.ReadAllText(p) == "first") || !files.Any(p => File.ReadAllText(p) == "second")) throw new Exception("Saved files mismatch");
-                File.WriteAllText(Path.Combine(root, "success"), "Unicode, PNG pixels, files, duplicate names, empty folder: PASS");
+                File.WriteAllText(Path.Combine(root, "success"), "Peer identity, alias, Unicode, PNG pixels, files, duplicate names, empty folder: PASS");
                 form.Close();
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(root, "error-" + mode + ".txt"), ex.ToString()); form.Close(); Environment.ExitCode = 1; }
