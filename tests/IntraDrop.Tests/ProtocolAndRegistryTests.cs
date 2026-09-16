@@ -229,6 +229,12 @@ public sealed class ProtocolAndRegistryTests
             var ex = await Assert.ThrowsAsync<TransferStatusException>(() => TransferClient.RegisterAsync("127.0.0.1", port, "local", "test-shared-secret", senderDeviceId: localId, recipientDeviceId: Guid.NewGuid().ToString()));
             Assert.Equal(Protocol.StatusRefused, ex.Status);
             Assert.Equal(localId, settings.Peers.Single().DeviceId);
+            settings.Peers.Clear();
+            Assert.Null(await TransferClient.RegisterAsync("127.0.0.1", port, "legacy", "test-shared-secret"));
+            Assert.Equal(1, registrations); // Older secured clients without a device ID still announce a new row.
+            Assert.Equal(1, refreshes);
+            Assert.Equal("legacy", settings.Peers.Single().Nickname);
+            Assert.Equal("", settings.Peers.Single().DeviceId);
         }
         finally { server.Stop(); try { Directory.Delete(settings.DownloadFolder, true); } catch { } }
     }

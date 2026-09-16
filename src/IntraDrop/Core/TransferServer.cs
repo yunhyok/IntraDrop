@@ -274,14 +274,14 @@ public class TransferServer
             if (!changed) rejected = true;
         }
         else if (!registry.Snapshot().Any(p => string.Equals((p.Host ?? "").Trim(), ip, StringComparison.OrdinalIgnoreCase)))
-            changed = registry.Add(new PeerInfo { Nickname = nickname, Host = ip });
+            changed = added = registry.Add(new PeerInfo { Nickname = nickname, Host = ip });
 
         if (rejected) { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
 
         if (changed)
         {
             PersistPeers();
-            if (added || segmentKeyForRegister == null) PeerAutoRegistered?.Invoke(nickname, ip);
+            if (added) PeerAutoRegistered?.Invoke(nickname, ip);
             else PeerAddressChanged?.Invoke();
         }
 
