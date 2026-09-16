@@ -23,7 +23,7 @@ public sealed class PeerRefreshCoordinator
             ct.ThrowIfCancellationRequested();
             var current = SettingsStore.ReadSecret(_settings);
             if (!current.IsAvailable || !string.Equals(current.Secret, secret.Secret, StringComparison.Ordinal)) return null;
-            if (string.Equals(direct.SenderDeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase) && _registry.TryConfirmVerified(target.DeviceId, expectedHost, expectedHost, direct.SenderName, out _)) { _save(); return direct.SenderName; }
+            if (string.Equals(direct.SenderDeviceId, target.DeviceId, StringComparison.OrdinalIgnoreCase) && _registry.TryConfirmVerified(target.DeviceId, expectedHost, expectedHost, direct.ComputerName, out _)) { _save(); return direct.SenderName; }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { }
@@ -43,7 +43,7 @@ public sealed class PeerRefreshCoordinator
                     ct.ThrowIfCancellationRequested();
                     var currentSecret = SettingsStore.ReadSecret(_settings);
                     if (!currentSecret.IsAvailable || !string.Equals(currentSecret.Secret, secret.Secret, StringComparison.Ordinal)) return null;
-                    if (_registry.TryConfirmVerified(target.DeviceId, expectedHost, hint.Host, null, out _)) { _save(); return identity.SenderName; }
+                    if (_registry.TryConfirmVerified(target.DeviceId, expectedHost, hint.Host, identity.ComputerName, out _)) { _save(); return identity.SenderName; }
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

@@ -270,25 +270,26 @@ public class TransferServer
             rejected = true;
         else if (segmentKeyForRegister != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId))
         {
-            changed = registry.TryRegisterAuthenticated(header.SenderDeviceId, ip, nickname, out added);
+            changed = registry.TryRegisterAuthenticated(header.SenderDeviceId, ip, nickname, out added, header.ComputerName);
             if (!changed) rejected = true;
         }
         else if (!registry.Snapshot().Any(p => string.Equals((p.Host ?? "").Trim(), ip, StringComparison.OrdinalIgnoreCase)))
-            changed = registry.Add(new PeerInfo { Nickname = nickname, Host = ip });
+            changed = added = registry.Add(new PeerInfo { Nickname = nickname, Host = ip });
 
         if (rejected) { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
 
         if (changed)
         {
             PersistPeers();
-            PeerAutoRegistered?.Invoke(nickname, ip);
+            if (added) PeerAutoRegistered?.Invoke(nickname, ip);
+            else PeerAddressChanged?.Invoke();
         }
 
         await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
         if (!string.IsNullOrWhiteSpace(header.SenderDeviceId) && segmentKeyForRegister != null)
         {
             try { await Segment.WriteSegmentAsync(stream, segmentKeyForRegister, registerNonce, Segment.IndexC,
-                Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct); } catch { }
+                Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, ComputerName = Environment.MachineName, SenderDeviceId = settings.DeviceId }), ct); } catch { }
         }
     }
 
@@ -302,13 +303,13 @@ public class TransferServer
         var peers = registry.Snapshot().Where(p => string.Equals(p.DeviceId, header.SenderDeviceId, StringComparison.OrdinalIgnoreCase)).ToList();
         if (peers.Count != 1) { await RejectAsync(stream, Protocol.StatusNotRegistered, ct); return; }
         string host = Normalize(remote).ToString();
-        bool confirmed = registry.TryConfirmVerified(header.SenderDeviceId, peers[0].Host, host, null, out bool hostChanged);
+        bool confirmed = registry.TryConfirmVerified(header.SenderDeviceId, peers[0].Host, host, header.ComputerName, out bool hostChanged);
         if (!confirmed)
         { await RejectAsync(stream, Protocol.StatusRefused, ct); return; }
         PersistPeers();
         await Protocol.WriteByteAsync(stream, Protocol.StatusAccepted, ct);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexC,
-            Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, SenderDeviceId = settings.DeviceId }), ct);
+            Protocol.ToJsonBytes(new TransferHeader { Type = "identity", SenderName = settings.DeviceName, ComputerName = Environment.MachineName, SenderDeviceId = settings.DeviceId }), ct);
         if (hostChanged) PeerAddressChanged?.Invoke();
     }
 

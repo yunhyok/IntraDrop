@@ -15,6 +15,7 @@ public class TransferHeader
 {
     public string Type { get; set; } = "transfer";   // "transfer" | "ping" | "register"
     public string SenderName { get; set; } = "";
+    public string ComputerName { get; set; } = "";
     public string SenderDeviceId { get; set; } = "";
     public string RecipientDeviceId { get; set; } = "";
     public long TotalSize { get; set; }

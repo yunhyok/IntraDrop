@@ -209,20 +209,99 @@ public sealed class ProtocolAndRegistryTests
         var settings = new AppSettings { DeviceId = remoteId, DownloadFolder = Path.Combine(Path.GetTempPath(), "idr-" + Guid.NewGuid().ToString("N")) };
         settings.Peers.Add(new PeerInfo { DeviceId = localId, Host = "127.0.0.1", Nickname = "local" });
         SettingsStore.SetSecret(settings, "test-shared-secret");
-        int saves = 0;
+        int saves = 0, registrations = 0, refreshes = 0;
         var server = new TransferServer { GetSettings = () => settings, SavePeers = () => saves++ };
+        server.PeerAutoRegistered += (_, _) => registrations++;
+        server.PeerAddressChanged += () => refreshes++;
         int port = GetFreePort(); server.Start(port);
         try
         {
             var reply = await TransferClient.RegisterAsync("127.0.0.1", port, "local", "test-shared-secret", senderDeviceId: localId, recipientDeviceId: remoteId);
             Assert.NotNull(reply); Assert.Equal(remoteId, reply!.SenderDeviceId);
+            Assert.Equal(Environment.MachineName, reply.ComputerName);
+            Assert.Equal(Environment.MachineName, settings.Peers.Single().ComputerName);
+            Assert.Equal(0, registrations);
+            Assert.Equal(1, refreshes);
             var identity = await TransferClient.RediscoverAsync("127.0.0.1", port, "local", localId, remoteId, "test-shared-secret");
             Assert.Equal(remoteId, identity.SenderDeviceId);
+            Assert.Equal(Environment.MachineName, identity.ComputerName);
+            Assert.Equal("local", settings.Peers.Single().Nickname);
             var ex = await Assert.ThrowsAsync<TransferStatusException>(() => TransferClient.RegisterAsync("127.0.0.1", port, "local", "test-shared-secret", senderDeviceId: localId, recipientDeviceId: Guid.NewGuid().ToString()));
             Assert.Equal(Protocol.StatusRefused, ex.Status);
             Assert.Equal(localId, settings.Peers.Single().DeviceId);
+            settings.Peers.Clear();
+            Assert.Null(await TransferClient.RegisterAsync("127.0.0.1", port, "legacy", "test-shared-secret"));
+            Assert.Equal(1, registrations); // Older secured clients without a device ID still announce a new row.
+            Assert.Equal(1, refreshes);
+            Assert.Equal("legacy", settings.Peers.Single().Nickname);
+            Assert.Equal("", settings.Peers.Single().DeviceId);
         }
         finally { server.Stop(); try { Directory.Delete(settings.DownloadFolder, true); } catch { } }
+    }
+
+    [Fact]
+    public async Task RefreshPreservesAliasAndStoredIdentityAcrossRepeatedRefreshes()
+    {
+        const string secret = "stable-peer-test";
+        var local = new AppSettings { Port = GetFreePort(), DeviceName = "local display" };
+        var remote = new AppSettings { DeviceName = "remote display" };
+        SettingsStore.SetSecret(local, secret);
+        SettingsStore.SetSecret(remote, secret);
+        local.Peers.Add(new PeerInfo { DeviceId = remote.DeviceId, Host = "127.0.0.2", Nickname = "Workstation" });
+        remote.Peers.Add(new PeerInfo { DeviceId = local.DeviceId, Host = "127.0.0.9", Nickname = "Notebook" });
+        var server = new TransferServer { GetSettings = () => remote, SavePeers = () => { } };
+        server.Start(local.Port, IPAddress.Parse("127.0.0.2"));
+        try
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                var coordinator = new PeerRefreshCoordinator(local, new PeerRegistry(local), () => { });
+                Assert.Equal("remote display", await coordinator.RefreshAsync(local.Peers.Single()));
+                var peer = local.Peers.Single();
+                Assert.Equal("Workstation", peer.Nickname);
+                Assert.Equal(remote.DeviceId, peer.DeviceId);
+                Assert.Equal(Environment.MachineName, peer.ComputerName);
+                // Exercise the persisted settings representation without writing user settings.
+                local = System.Text.Json.JsonSerializer.Deserialize<AppSettings>(System.Text.Json.JsonSerializer.Serialize(local))!;
+            }
+            Assert.Equal("Notebook", remote.Peers.Single().Nickname);
+            Assert.Equal("127.0.0.1", remote.Peers.Single().Host);
+            Assert.Equal(Environment.MachineName, remote.Peers.Single().ComputerName);
+        }
+        finally { server.Stop(); }
+    }
+
+    [Fact]
+    public void ExplicitLegacyMergePreservesAliasAndPreventsDuplicateAfterIpChange()
+    {
+        var settings = new AppSettings();
+        var legacy = new PeerInfo { Host = "172.16.20.112", Nickname = "Desktop" };
+        settings.Peers.Add(legacy);
+        var registry = new PeerRegistry(settings);
+        string id = Guid.NewGuid().ToString("N");
+        Assert.True(registry.TryRegisterAuthenticated(id, "172.16.20.120", "PC201703-012W7", out var added, "PC201703-012W7"));
+        Assert.True(added);
+        Assert.Equal(2, settings.Peers.Count);
+        Assert.False(registry.TryMergeLegacyPeer(legacy, "stale host", id, "172.16.20.120", "Desktop", "PC201703-012W7"));
+        Assert.False(registry.TryMergeLegacyPeer(legacy, legacy.Host, Guid.NewGuid().ToString("N"), "172.16.20.120", "Desktop", "PC201703-012W7"));
+        Assert.Equal(2, settings.Peers.Count);
+        Assert.True(registry.TryMergeLegacyPeer(legacy, legacy.Host, id, "172.16.20.120", "Desktop", "PC201703-012W7"));
+        Assert.Same(legacy, settings.Peers.Single());
+        Assert.Equal(id, legacy.DeviceId);
+        Assert.Equal("Desktop", legacy.Nickname);
+        Assert.Equal("PC201703-012W7", registry.Snapshot().Single().ComputerName);
+        Assert.True(registry.TryRegisterAuthenticated(id, "172.16.20.121", "new display name", out added, "RENAMED-PC"));
+        Assert.False(added);
+        Assert.Equal("Desktop", settings.Peers.Single().Nickname);
+        Assert.Equal("172.16.20.121", legacy.Host);
+        Assert.Equal("RENAMED-PC", legacy.ComputerName);
+        Assert.True(registry.TryConfirmVerified(id, legacy.Host, legacy.Host, "", out _));
+        Assert.Equal("RENAMED-PC", legacy.ComputerName); // An older peer must not erase known metadata.
+        Assert.True(registry.TryConfirmVerified(id, legacy.Host, legacy.Host, "invalid\nname", out _));
+        Assert.Equal("RENAMED-PC", legacy.ComputerName);
+        Assert.True(registry.TryRegisterAuthenticated(Guid.NewGuid().ToString("N"), "172.16.20.122", "Other", out added, "RENAMED-PC"));
+        Assert.True(added); // Computer names alone never merge two different device IDs.
+        Assert.Equal(2, settings.Peers.Count);
     }
 
     [Theory]

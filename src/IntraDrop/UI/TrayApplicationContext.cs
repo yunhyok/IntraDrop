@@ -97,7 +97,7 @@ public class TrayApplicationContext : ApplicationContext
         var currentSecret = SettingsStore.ReadSecret(_settings);
         if (lifecycleToken.IsCancellationRequested || !_settings.EnablePeerDiscovery || !currentSecret.IsAvailable || !string.Equals(currentSecret.Secret, usedSecret, StringComparison.Ordinal)) return;
         var current = _peerRegistry.Snapshot().SingleOrDefault(p => string.Equals(p.DeviceId, targetId, StringComparison.OrdinalIgnoreCase));
-        if (current != null && string.Equals(reply.SenderDeviceId, targetId, StringComparison.OrdinalIgnoreCase) && _peerRegistry.TryConfirmVerified(targetId, current.Host, source.ToString(), null, out bool hostChanged))
+        if (current != null && string.Equals(reply.SenderDeviceId, targetId, StringComparison.OrdinalIgnoreCase) && _peerRegistry.TryConfirmVerified(targetId, current.Host, source.ToString(), reply.ComputerName, out bool hostChanged))
         {
             SavePeers();
             if (hostChanged) _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
@@ -116,7 +116,7 @@ public class TrayApplicationContext : ApplicationContext
                     senderDeviceId: _settings.DeviceId, recipientDeviceId: "").ConfigureAwait(false);
                 if (reply != null && !string.IsNullOrWhiteSpace(reply.SenderDeviceId))
                 {
-                    if (_peerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName))
+                    if (_peerRegistry.TryPair(reply.SenderDeviceId, peer.Host, reply.SenderName, reply.ComputerName))
                         SavePeers();
                 }
             }

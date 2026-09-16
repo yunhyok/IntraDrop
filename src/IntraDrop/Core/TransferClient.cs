@@ -67,7 +67,7 @@ public static class TransferClient
         await Protocol.WriteMagicAsync(stream, Protocol.FlagSecured, cts.Token);
         byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
-            Protocol.ToJsonBytes(new TransferHeader { Type = "rediscover", SenderName = myName, SenderDeviceId = myDeviceId, RecipientDeviceId = targetDeviceId }), cts.Token);
+            Protocol.ToJsonBytes(new TransferHeader { Type = "rediscover", SenderName = myName, ComputerName = Environment.MachineName, SenderDeviceId = myDeviceId, RecipientDeviceId = targetDeviceId }), cts.Token);
         byte status = await Protocol.ReadByteAsync(stream, cts.Token);
         if (status != Protocol.StatusAccepted) throw TransferStatusException.From(status);
         byte[] json = await Segment.ReadSegmentAsync(stream, key, nonce, Segment.IndexC, Protocol.MaxJsonLength, cts.Token);
@@ -149,6 +149,7 @@ public static class TransferClient
         byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
         await Segment.WriteSegmentAsync(stream, key, nonce, Segment.IndexA,
             Protocol.ToJsonBytes(new TransferHeader { Type = "register", SenderName = myName,
+                ComputerName = key == null ? "" : Environment.MachineName,
                 SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
                 RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "" }), cts.Token);
 

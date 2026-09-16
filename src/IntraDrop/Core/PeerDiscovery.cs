@@ -145,7 +145,7 @@ public sealed class PeerRegistry
             bool hostChanged = !string.Equals(peer.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase);
             peer.Nickname = string.IsNullOrWhiteSpace(nickname) ? host.Trim() : nickname.Trim();
             peer.Host = host.Trim();
-            if (hostChanged) { peer.DeviceId = ""; peer.LastVerifiedUtc = null; }
+            if (hostChanged) { peer.DeviceId = ""; peer.ComputerName = ""; peer.LastVerifiedUtc = null; }
             return true;
         }
     }
@@ -162,7 +162,7 @@ public sealed class PeerRegistry
 
     /// <summary>Atomically commits an authenticated host edit. expectedHost, when supplied,
     /// prevents a stale UI edit from overwriting a concurrent rediscovery.</summary>
-    public bool TryVerifiedHostUpdate(string deviceId, string? expectedHost, string host, string? nickname)
+    public bool TryVerifiedHostUpdate(string deviceId, string? expectedHost, string host, string? nickname, string? computerName = null)
     {
         if (!ValidId(deviceId) || string.Equals(deviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase) || string.IsNullOrWhiteSpace(host)) return false;
         lock (Sync)
@@ -175,12 +175,13 @@ public sealed class PeerRegistry
             if (_settings.Peers.Any(p => !ReferenceEquals(p, peer) && string.Equals(p.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase))) return false;
             peer.Host = host.Trim();
             if (nickname != null && !string.IsNullOrWhiteSpace(nickname)) peer.Nickname = nickname.Trim();
+            UpdateComputerName(peer, computerName);
             peer.LastVerifiedUtc = DateTime.UtcNow;
             return true;
         }
     }
 
-    public bool TryConfirmVerified(string deviceId, string expectedHost, string authenticatedHost, string? nickname, out bool hostChanged)
+    public bool TryConfirmVerified(string deviceId, string expectedHost, string authenticatedHost, string? computerName, out bool hostChanged)
     {
         hostChanged = false;
         if (!ValidId(deviceId) || string.IsNullOrWhiteSpace(expectedHost) || string.IsNullOrWhiteSpace(authenticatedHost)) return false;
@@ -192,23 +193,25 @@ public sealed class PeerRegistry
             if (_settings.Peers.Any(p => !ReferenceEquals(p, peer) && string.Equals(p.Host?.Trim(), authenticatedHost.Trim(), StringComparison.OrdinalIgnoreCase))) return false;
             hostChanged = !string.Equals(peer.Host?.Trim(), authenticatedHost.Trim(), StringComparison.OrdinalIgnoreCase);
             peer.Host = authenticatedHost.Trim();
-            if (!string.IsNullOrWhiteSpace(nickname)) peer.Nickname = nickname!.Trim();
+            UpdateComputerName(peer, computerName);
             peer.LastVerifiedUtc = DateTime.UtcNow;
             return true;
         }
     }
 
-    public bool TryPair(string deviceId, string host, string nickname)
+    public bool TryPair(string deviceId, string host, string nickname, string? computerName = null)
     {
         if (!ValidId(deviceId) || string.Equals(deviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase) || !IPAddress.TryParse(host, out _)) return false;
         lock (Sync)
         {
             if (_settings.Peers.Any(p => string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))) return false;
             var legacy = _settings.Peers.Where(p => string.IsNullOrWhiteSpace(p.DeviceId) && string.Equals(p.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-            if (legacy.Count == 1) { legacy[0].DeviceId = deviceId.Trim(); legacy[0].LastVerifiedUtc = DateTime.UtcNow; return true; }
+            if (legacy.Count == 1) { legacy[0].DeviceId = deviceId.Trim(); legacy[0].LastVerifiedUtc = DateTime.UtcNow; UpdateComputerName(legacy[0], computerName); return true; }
             if (legacy.Count > 1) return false;
             if (_settings.Peers.Any(p => string.Equals((p.Host ?? "").Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase) && !string.IsNullOrEmpty(p.DeviceId))) return false;
-            _settings.Peers.Add(new PeerInfo { DeviceId = deviceId.Trim(), Host = host.Trim(), Nickname = string.IsNullOrWhiteSpace(nickname) ? host.Trim() : nickname.Trim(), LastVerifiedUtc = DateTime.UtcNow });
+            var peer = new PeerInfo { DeviceId = deviceId.Trim(), Host = host.Trim(), Nickname = string.IsNullOrWhiteSpace(nickname) ? host.Trim() : nickname.Trim(), LastVerifiedUtc = DateTime.UtcNow };
+            UpdateComputerName(peer, computerName);
+            _settings.Peers.Add(peer);
             return true;
         }
     }
@@ -221,9 +224,38 @@ public sealed class PeerRegistry
         }
     }
     private static bool ValidId(string id) => !string.IsNullOrWhiteSpace(id) && Guid.TryParse(id.Trim(), out _) && id.IndexOfAny(new[] { '\r', '\n', '\0' }) < 0;
-    private static PeerInfo Clone(PeerInfo p) => new() { DeviceId = p.DeviceId, Host = p.Host, Nickname = p.Nickname, LastVerifiedUtc = p.LastVerifiedUtc };
+    private static PeerInfo Clone(PeerInfo p) => new() { DeviceId = p.DeviceId, ComputerName = p.ComputerName, Host = p.Host, Nickname = p.Nickname, LastVerifiedUtc = p.LastVerifiedUtc };
 
-    public bool TryRegisterAuthenticated(string deviceId, string host, string nickname, out bool added)
+    private static void UpdateComputerName(PeerInfo peer, string? name)
+    {
+        if (!string.IsNullOrWhiteSpace(name) && name!.Length <= 255 && !name.Any(char.IsControl))
+            peer.ComputerName = name.Trim();
+    }
+
+    // Only called after the user explicitly links an old IP-only row to an authenticated row.
+    public bool TryMergeLegacyPeer(PeerInfo legacy, string expectedHost, string deviceId, string authenticatedHost, string nickname, string? computerName)
+    {
+        if (!ValidId(deviceId) || string.Equals(deviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase)) return false;
+        lock (Sync)
+        {
+            if (!_settings.Peers.Contains(legacy) || !string.IsNullOrWhiteSpace(legacy.DeviceId) ||
+                !string.Equals(legacy.Host, expectedHost, StringComparison.OrdinalIgnoreCase)) return false;
+            var matches = _settings.Peers.Where(p => string.Equals(p.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count != 1 || !string.Equals(matches[0].Host, authenticatedHost, StringComparison.OrdinalIgnoreCase) ||
+                _settings.Peers.Any(p => !ReferenceEquals(p, matches[0]) && !ReferenceEquals(p, legacy) &&
+                    string.Equals(p.Host, authenticatedHost, StringComparison.OrdinalIgnoreCase))) return false;
+            legacy.DeviceId = matches[0].DeviceId;
+            legacy.Host = matches[0].Host;
+            legacy.ComputerName = matches[0].ComputerName;
+            UpdateComputerName(legacy, computerName);
+            if (!string.IsNullOrWhiteSpace(nickname)) legacy.Nickname = nickname.Trim();
+            legacy.LastVerifiedUtc = DateTime.UtcNow;
+            _settings.Peers.Remove(matches[0]);
+            return true;
+        }
+    }
+
+    public bool TryRegisterAuthenticated(string deviceId, string host, string nickname, out bool added, string? computerName = null)
     {
         added = false;
         if (!ValidId(deviceId) || string.Equals(deviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase) || !IPAddress.TryParse(host, out _)) return false;
@@ -234,16 +266,18 @@ public sealed class PeerRegistry
             if (byId.Count == 1)
             {
                 if (_settings.Peers.Any(p => !ReferenceEquals(p, byId[0]) && string.Equals(p.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase))) return false;
-                byId[0].Host = host.Trim(); byId[0].LastVerifiedUtc = DateTime.UtcNow; return true;
+                byId[0].Host = host.Trim(); byId[0].LastVerifiedUtc = DateTime.UtcNow; UpdateComputerName(byId[0], computerName); return true;
             }
             var legacy = _settings.Peers.Where(p => string.IsNullOrWhiteSpace(p.DeviceId) && string.Equals(p.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
             if (legacy.Count > 1) return false;
             if (legacy.Count == 1)
             {
-                legacy[0].DeviceId = deviceId.Trim(); legacy[0].LastVerifiedUtc = DateTime.UtcNow; return true;
+                legacy[0].DeviceId = deviceId.Trim(); legacy[0].LastVerifiedUtc = DateTime.UtcNow; UpdateComputerName(legacy[0], computerName); return true;
             }
             if (_settings.Peers.Any(p => string.Equals(p.Host?.Trim(), host.Trim(), StringComparison.OrdinalIgnoreCase) && !string.IsNullOrWhiteSpace(p.DeviceId))) return false;
-            _settings.Peers.Add(new PeerInfo { DeviceId = deviceId.Trim(), Host = host.Trim(), Nickname = string.IsNullOrWhiteSpace(nickname) ? host.Trim() : nickname.Trim(), LastVerifiedUtc = DateTime.UtcNow });
+            var peer = new PeerInfo { DeviceId = deviceId.Trim(), Host = host.Trim(), Nickname = string.IsNullOrWhiteSpace(nickname) ? host.Trim() : nickname.Trim(), LastVerifiedUtc = DateTime.UtcNow };
+            UpdateComputerName(peer, computerName);
+            _settings.Peers.Add(peer);
             added = true;
             return true;
         }
