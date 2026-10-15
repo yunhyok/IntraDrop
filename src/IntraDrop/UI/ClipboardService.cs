@@ -1,5 +1,6 @@
 using System.Collections.Specialized;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 using System.Text;
 using IntraDrop.Core;
 
@@ -56,7 +57,7 @@ internal static class ClipboardService
         throw new InvalidOperationException("전달할 텍스트, 이미지 또는 파일·폴더가 없습니다. 앱 전용 객체나 가상 첨부 파일은 파일로 저장한 뒤 복사하세요.");
     }
 
-    public static void Apply(ClipboardContent content)
+    public static void Apply(ClipboardContent content, Func<bool>? canApply = null)
     {
         var data = new DataObject();
         data.SetData(ReceivedFormat, false, "1");
@@ -83,12 +84,23 @@ internal static class ClipboardService
             using var image = Image.FromStream(stream, false, true);
             using var bitmap = new Bitmap(image);
             data.SetImage(bitmap);
-            Clipboard.SetDataObject(data, true, 10, 100);
+            SetDataObject(data, canApply);
             return;
         }
         else throw new InvalidDataException("지원하지 않는 클립보드 형식입니다.");
         // Persist after the sender/app exits and retry temporary clipboard contention.
-        Clipboard.SetDataObject(data, true, 10, 100);
+        SetDataObject(data, canApply);
+    }
+
+    private static void SetDataObject(DataObject data, Func<bool>? canApply)
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            if (canApply != null && !canApply())
+                throw new InvalidOperationException("현재 컴퓨터에서 새로 복사·잘라내기한 내용을 보호하기 위해 수신 클립보드를 적용하지 않았습니다.");
+            try { Clipboard.SetDataObject(data, true, 0, 0); return; }
+            catch (ExternalException) when (attempt < 10) { Thread.Sleep(100); }
+        }
     }
 
     private static void ValidateDimensions(long width, long height)

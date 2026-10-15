@@ -118,6 +118,63 @@ public sealed class ClipboardUiTests
 
     [Fact]
     [Trait("Category", "InteractiveShell")]
+    public Task IncomingClipboardCannotReplaceAnUnobservedLocalCopy() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            Clipboard.Clear();
+            var copies = new List<ClipboardContent>();
+            using var monitor = new ClipboardMonitor(copies.Add, _ => { });
+            Clipboard.SetText("new local copy");
+            Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
+            var remote = new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("old remote copy") };
+            Assert.Throws<InvalidOperationException>(() => monitor.ApplyReceived(remote));
+            Assert.Equal("new local copy", Clipboard.GetText());
+            PumpUntil(() => copies.Count == 1);
+            Assert.Equal("new local copy", Encoding.UTF8.GetString(copies[0].Data));
+            Assert.Throws<InvalidOperationException>(() => ClipboardService.Apply(remote, () => false));
+            Assert.Equal("new local copy", Clipboard.GetText());
+            monitor.ApplyReceived(remote);
+            Assert.Equal("old remote copy", Clipboard.GetText());
+            Assert.True(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
+            Assert.Null(ClipboardReader.CaptureAutomatic());
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task NativeReaderPreservesUnicodeAndSkipsShellFileFallbacks() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            const string text = "최신 셀\t123\r\n😀";
+            Clipboard.SetText(text);
+            Assert.Equal(text, Encoding.UTF8.GetString(ClipboardReader.CaptureAutomatic()!.Data));
+            foreach (string format in new[] { "Shell IDList Array", "MountedVolume", "FileName", "FileNameW", "FileGroupDescriptor", "FileGroupDescriptorW", "FileContents" })
+            {
+                var data = new DataObject(DataFormats.UnicodeText, text);
+                using var stream = new MemoryStream(new byte[] { 0 });
+                data.SetData(format, false, stream);
+                Clipboard.SetDataObject(data, true);
+                Assert.Null(ClipboardReader.CaptureAutomatic());
+            }
+            Clipboard.SetText(new string('가', ClipboardContent.MaxTextBytes / 3 + 1));
+            Assert.Throws<InvalidOperationException>(() => ClipboardReader.CaptureAutomatic());
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
     public Task FileCopyAndCutStayLocalWithoutChangingClipboardOrFiles() => OnSta(() =>
     {
         var original = Clipboard.GetDataObject();

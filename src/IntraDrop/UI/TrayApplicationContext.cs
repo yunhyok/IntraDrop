@@ -196,9 +196,9 @@ public class TrayApplicationContext : ApplicationContext
                 if (_lifetime.IsCancellationRequested) { completion.TrySetCanceled(); return; }
                 try
                 {
-                    _clipboardBroadcaster.ClearPending();
                     if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
-                    else ClipboardService.Apply(content);
+                    else ClipboardService.Apply(content, () => !ClipboardReader.HasLocalExcelCopy());
+                    _clipboardBroadcaster.ClearPending();
                     completion.TrySetResult(true);
                 }
                 catch (Exception ex)
