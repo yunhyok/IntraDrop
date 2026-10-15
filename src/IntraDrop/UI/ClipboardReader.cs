@@ -25,35 +25,49 @@ internal static class ClipboardReader
         Register("FileContents")
     };
 
+    // Office main-window classes. A different active window means a popup menu, gallery, or dialog is open.
+    private static readonly Dictionary<string, string> OfficeMainClasses = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["EXCEL"] = "XLMAIN",
+        ["WINWORD"] = "OpusApp",
+        ["POWERPNT"] = "PPTFrameClass",
+    };
+
     public static bool HasLocalExcelCopy()
     {
         // Metadata only: querying Excel's IDataObject can disturb its menus/copy state.
         IntPtr owner = GetClipboardOwner();
         if (owner == IntPtr.Zero || CountClipboardFormats() == 0) return false;
-        return IsExcelWindow(owner);
+        return OfficeProcessName(owner) == "EXCEL";
     }
 
-    public static bool ShouldProtectLocalClipboard() => HasLocalExcelCopy() || HasActiveExcelInteraction();
+    public static bool ShouldProtectLocalClipboard() => HasLocalExcelCopy() || HasActiveOfficeInteraction();
 
-    private static bool HasActiveExcelInteraction()
+    /// <summary>전면의 Office 앱이 메뉴·대화상자·셀 편집·마우스 조작 중이면 true.
+    /// 이때 클립보드를 열면 Excel 의 지연 렌더가 팝업을 닫고, 그동안 클립보드를 쥐고 있어 Excel 자신의 다음 복사가 실패한다.
+    /// includeHeldInput: Ctrl 이나 마우스 버튼이 눌린 상태도 조작 중으로 본다 (캡처 지연용; 수신 보호는 복사·잘라내기·붙여넣기 조합만 본다).</summary>
+    public static bool HasActiveOfficeInteraction(bool includeHeldInput = false)
     {
         IntPtr foreground = GetForegroundWindow();
-        if (!IsExcelWindow(foreground)) return false;
+        string? app = OfficeProcessName(foreground);
+        if (app == null) return false;
         uint thread = GetWindowThreadProcessId(foreground, out _);
         var info = new GuiThreadInfo { Size = Marshal.SizeOf(typeof(GuiThreadInfo)) };
         if (!GetGUIThreadInfo(thread, ref info)) return true;
-        bool clipboardShortcut = GetAsyncKeyState(0x11) < 0 &&
-            (GetAsyncKeyState(0x43) < 0 || GetAsyncKeyState(0x58) < 0 || GetAsyncKeyState(0x56) < 0);
-        return IsExcelInteraction(WindowClass(info.Active), WindowClass(info.Focus), info.Flags,
-            info.Capture != IntPtr.Zero, clipboardShortcut);
+        bool control = GetAsyncKeyState(0x11) < 0;
+        bool inputHeld = includeHeldInput
+            ? control || GetAsyncKeyState(0x01) < 0 || GetAsyncKeyState(0x02) < 0
+            : control && (GetAsyncKeyState(0x43) < 0 || GetAsyncKeyState(0x58) < 0 || GetAsyncKeyState(0x56) < 0);
+        return IsOfficeInteraction(OfficeMainClasses[app], WindowClass(info.Active), WindowClass(info.Focus), info.Flags,
+            info.Capture != IntPtr.Zero, inputHeld);
     }
 
-    internal static bool IsExcelInteraction(string activeClass, string focusClass, uint guiFlags,
-        bool hasMouseCapture, bool clipboardShortcut) =>
-        // Office's custom popup reports no GUI menu flags; its active window is not XLMAIN.
-        !string.Equals(activeClass, "XLMAIN", StringComparison.OrdinalIgnoreCase) ||
-        string.Equals(focusClass, "EXCEL6", StringComparison.OrdinalIgnoreCase) ||
-        (guiFlags & 0x1c) != 0 || hasMouseCapture || clipboardShortcut;
+    internal static bool IsOfficeInteraction(string mainClass, string activeClass, string focusClass, uint guiFlags,
+        bool hasMouseCapture, bool inputHeld) =>
+        // Office's custom popup reports no GUI menu flags; its active window is not the main frame.
+        !string.Equals(activeClass, mainClass, StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(focusClass, "EXCEL6", StringComparison.OrdinalIgnoreCase) ||   // Excel in-cell edit
+        (guiFlags & 0x1c) != 0 || hasMouseCapture || inputHeld;
 
     private static string WindowClass(IntPtr window)
     {
@@ -62,16 +76,18 @@ internal static class ClipboardReader
         return name.ToString();
     }
 
-    private static bool IsExcelWindow(IntPtr window)
+    /// <summary>창을 소유한 프로세스가 Office 앱이면 대문자 프로세스 이름, 아니면 null.</summary>
+    private static string? OfficeProcessName(IntPtr window)
     {
-        if (window == IntPtr.Zero) return false;
+        if (window == IntPtr.Zero) return null;
         GetWindowThreadProcessId(window, out uint processId);
         try
         {
             using var process = Process.GetProcessById((int)processId);
-            return string.Equals(process.ProcessName, "EXCEL", StringComparison.OrdinalIgnoreCase);
+            string name = process.ProcessName.ToUpperInvariant();
+            return OfficeMainClasses.ContainsKey(name) ? name : null;
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return false; } // The owner just exited.
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return null; } // The owner just exited.
     }
 
     public static bool HasReceivedClipboardFromCurrentProcess()

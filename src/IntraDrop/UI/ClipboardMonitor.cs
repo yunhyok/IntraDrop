@@ -9,16 +9,18 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 150 };
     private readonly Action<ClipboardContent> _copied;
     private readonly Action<Exception> _failed;
+    private readonly Func<bool> _deferCapture;
     private uint _sequence;
     private int _attempts;
     private bool _applying;
     private bool _capturing;
     private bool _disposed;
 
-    public ClipboardMonitor(Action<ClipboardContent> copied, Action<Exception> failed)
+    public ClipboardMonitor(Action<ClipboardContent> copied, Action<Exception> failed, Func<bool>? deferCapture = null)
     {
         _copied = copied;
         _failed = failed;
+        _deferCapture = deferCapture ?? (() => ClipboardReader.HasActiveOfficeInteraction(includeHeldInput: true));
         // Ignore the clipboard already present when the app starts.
         _sequence = GetClipboardSequenceNumber();
         CreateHandle(new CreateParams { Parent = new IntPtr(-3) });
@@ -48,6 +50,9 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         _timer.Stop();
         uint sequence = GetClipboardSequenceNumber();
         if (_disposed || _applying || _capturing || sequence == _sequence) return;
+        // Office 가 메뉴·편집·드래그·키 조작 중이면 클립보드를 열지 않는다. 열면 Excel 의 지연 렌더가 팝업을 닫고,
+        // 그동안 클립보드를 쥐고 있어 Excel 의 다음 복사가 실패한다. 조작이 끝난 뒤 한 번만 읽는다.
+        if (_deferCapture()) { _timer.Start(); return; }
         ClipboardContent? content = null;
         try
         {
