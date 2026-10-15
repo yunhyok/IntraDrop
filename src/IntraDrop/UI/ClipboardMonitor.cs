@@ -12,6 +12,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     private uint _sequence;
     private int _attempts;
     private bool _applying;
+    private bool _capturing;
     private bool _disposed;
 
     public ClipboardMonitor(Action<ClipboardContent> copied, Action<Exception> failed)
@@ -46,11 +47,12 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     {
         _timer.Stop();
         uint sequence = GetClipboardSequenceNumber();
-        if (_disposed || _applying || sequence == _sequence) return;
+        if (_disposed || _applying || _capturing || sequence == _sequence) return;
         ClipboardContent? content = null;
         try
         {
-            content = ClipboardService.CaptureAutomatic(Clipboard.GetDataObject());
+            _capturing = true;
+            content = ClipboardReader.CaptureAutomatic();
         }
         catch (ExternalException ex)
         {
@@ -59,6 +61,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         }
         catch (InvalidOperationException) { } // Empty or unsupported clipboard formats.
         catch (Exception ex) { _failed(ex); }
+        finally { _capturing = false; }
         uint afterCapture = GetClipboardSequenceNumber();
         if (afterCapture != sequence) { _timer.Start(); return; }
         _sequence = afterCapture;
@@ -67,13 +70,25 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
 
     public void ApplyReceived(ClipboardContent content)
     {
+        uint sequence = GetClipboardSequenceNumber();
+        if (_capturing || _applying || sequence != _sequence || ClipboardReader.HasLocalExcelCopy())
+            throw new InvalidOperationException("현재 컴퓨터의 복사·잘라내기를 보호하기 위해 수신 클립보드를 적용하지 않았습니다. Excel 복사·잘라내기를 끝낸 뒤 다시 복사해 보내세요.");
         _timer.Stop();
         _applying = true;
-        try { ClipboardService.Apply(content); }
+        bool applied = false;
+        try
+        {
+            // OleSetClipboard may succeed before OleFlushClipboard needs a retry.
+            ClipboardService.Apply(content, () =>
+                (GetClipboardSequenceNumber() == sequence || ClipboardReader.HasReceivedClipboardFromCurrentProcess()) &&
+                !ClipboardReader.HasLocalExcelCopy());
+            applied = true;
+        }
         finally
         {
-            _sequence = GetClipboardSequenceNumber();
             _applying = false;
+            if (applied) _sequence = GetClipboardSequenceNumber();
+            else _timer.Start(); // A local copy during a failed write still needs capture.
         }
     }
 

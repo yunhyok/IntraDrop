@@ -33,8 +33,8 @@
 
 | Windows 버전 | 인스톨러 | 비고 |
 |---|---|---|
-| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.9.2.exe` | .NET 런타임 포함, 별도 설치 불필요 |
-| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.9.2-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.9.3.exe` | .NET 런타임 포함, 별도 설치 불필요 |
+| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.9.3-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
 
 서로 다른 버전의 Windows끼리도 정상적으로 파일을 주고받을 수 있습니다 (동일 프로토콜).
 
@@ -79,6 +79,8 @@ Windows 7 SP1의 .NET Framework 4.8과 Windows 10/11의 .NET 8에서 공통으�
 
 파일·폴더를 복사하거나 잘라내면 로컬 클립보드와 원본 파일을 그대로 유지하며, 자동 전송을 시작하지 않습니다. 다른 컴퓨터로 보내려면 탐색기에서 **보내기 → IntraDrop - 대상 컴퓨터**를 선택하거나 컴퓨터 목록에서 대상을 열어 파일을 끌어다 놓으세요.
 
+v1.9.3부터 자동 텍스트 읽기는 Excel의 OLE 데이터 객체를 조회하지 않고 Windows의 표준 텍스트 형식으로 읽습니다. **Excel이 로컬 복사·잘라내기 내용을 보유한 동안에는 다른 컴퓨터에서 받은 클립보드로 덮어쓰지 않습니다.** Excel의 복사·잘라내기를 끝내거나 `Esc`로 취소한 뒤, 보내는 컴퓨터에서 다시 복사하면 수신할 수 있습니다. Excel 버전에 따라 내용이 계속 남으면 다른 앱에서 한 번 복사해 로컬 Excel 클립보드를 교체하세요. 보내지 못한 수신 내용을 나중에 자동 적용하지 않습니다. 이 보호는 Excel에서 복사한 텍스트를 다른 컴퓨터로 보내는 동작에는 영향을 주지 않습니다. 아직 읽지 못한 새 로컬 복사와 클립보드 쓰기 재시도 중 발생한 새 복사도 우선 보호합니다.
+
 기존 공유 암호·수신 허용 목록·대용량 수락 확인을 적용합니다. 전체 데이터 검증과 수신 클립보드 등록이 모두 끝난 뒤 전송을 완료하며, 실제 붙여넣기 여부를 확인하거나 기다리지 않습니다. 붙여넣지 않고 시간이 지나도 재전송하거나 오류를 발생시키지 않습니다. 클립보드가 다른 앱에 잠겨 있으면 잠시 재시도합니다. v1.9.2부터 자동 공유 실패는 양쪽 PC의 트레이 메뉴 상태와 툴팁에서만 확인하며 팝업 알림은 띄우지 않습니다. 이 동작을 적용하려면 보내는 PC와 받는 PC 모두 업데이트하세요. 직접 지정한 파일 전송의 오류 알림은 유지하며, 클립보드 적용에 실패해도 이미 받은 파일은 다운로드 폴더에 보존됩니다. 공유 암호를 사용하는 클립보드 전송은 송신자가 매번 생성한 난수와 일치하는 인증된 완료 응답을 확인해 이전 완료 응답의 재사용도 거부합니다.
 
 호환성 근거: Microsoft의 [클립보드 형식과 Shell 파일 객체](https://learn.microsoft.com/en-us/windows/win32/shell/clipboard), [Windows Forms 클립보드 데이터 추가](https://learn.microsoft.com/en-us/dotnet/desktop/winforms/advanced/how-to-add-data-to-the-clipboard), [STA·지속 저장·재시도 API](https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.clipboard.setdataobject?view=netframework-4.8.1). 임의 객체를 직렬화해 네트워크에서 복원하지 않습니다.
@@ -101,6 +103,8 @@ iscc installer/IntraDrop-Win7.iss   # Windows 7용
 ```
 
 인스톨러는 `installer/Output/`에 생성됩니다.
+
+일반 테스트는 `dotnet test tests/IntraDrop.Tests/IntraDrop.Tests.csproj --filter "Category!=InteractiveShell&Category!=InteractiveExcel"`로 실행합니다. 실제 Windows 클립보드·탐색기 검사는 `Category=InteractiveShell`, 설치된 Excel의 복사·잘라내기 보호 검사는 `Category=InteractiveExcel`로 따로 실행합니다. 두 데스크톱 검사 중에는 실행 중인 IntraDrop을 종료해 테스트 클립보드가 다른 PC로 전송되지 않게 하세요. Excel 검사는 별도의 빈 통합 문서를 만들고 닫으며 사용자 문서를 열지 않습니다.
 
 ## 동작 방식 (프로토콜 개요)
 
