@@ -47,6 +47,8 @@ public sealed class ExcelClipboardTests
             var copies = new List<ClipboardContent>();
             using var monitor = new ClipboardMonitor(copies.Add, error => throw error);
             if (cut) source.Cut(); else source.Copy();
+            Assert.True(ClipboardReader.HasLocalExcelCopy(), "Excel must own the copied cells before testing incoming replacement.");
+            Assert.Equal(cut ? 2 : 1, (int)excel.CutCopyMode);
             var remote = new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("old remote value") };
             Assert.Throws<InvalidOperationException>(() => monitor.ApplyReceived(remote));
             Pump();

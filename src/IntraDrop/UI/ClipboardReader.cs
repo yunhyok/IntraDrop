@@ -1,10 +1,11 @@
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Text;
 using IntraDrop.Core;
 
 namespace IntraDrop.UI;
 
-// Avoid OLE owner callbacks while observing text copies in applications such as Excel.
+// Read standard text formats without querying the clipboard's IDataObject.
 internal static class ClipboardReader
 {
     private const uint CfBitmap = 2;
@@ -29,7 +30,42 @@ internal static class ClipboardReader
         // Metadata only: querying Excel's IDataObject can disturb its menus/copy state.
         IntPtr owner = GetClipboardOwner();
         if (owner == IntPtr.Zero || CountClipboardFormats() == 0) return false;
-        GetWindowThreadProcessId(owner, out uint processId);
+        return IsExcelWindow(owner);
+    }
+
+    public static bool ShouldProtectLocalClipboard() => HasLocalExcelCopy() || HasActiveExcelInteraction();
+
+    private static bool HasActiveExcelInteraction()
+    {
+        IntPtr foreground = GetForegroundWindow();
+        if (!IsExcelWindow(foreground)) return false;
+        uint thread = GetWindowThreadProcessId(foreground, out _);
+        var info = new GuiThreadInfo { Size = Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        if (!GetGUIThreadInfo(thread, ref info)) return true;
+        bool clipboardShortcut = GetAsyncKeyState(0x11) < 0 &&
+            (GetAsyncKeyState(0x43) < 0 || GetAsyncKeyState(0x58) < 0 || GetAsyncKeyState(0x56) < 0);
+        return IsExcelInteraction(WindowClass(info.Active), WindowClass(info.Focus), info.Flags,
+            info.Capture != IntPtr.Zero, clipboardShortcut);
+    }
+
+    internal static bool IsExcelInteraction(string activeClass, string focusClass, uint guiFlags,
+        bool hasMouseCapture, bool clipboardShortcut) =>
+        // Office's custom popup reports no GUI menu flags; its active window is not XLMAIN.
+        !string.Equals(activeClass, "XLMAIN", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(focusClass, "EXCEL6", StringComparison.OrdinalIgnoreCase) ||
+        (guiFlags & 0x1c) != 0 || hasMouseCapture || clipboardShortcut;
+
+    private static string WindowClass(IntPtr window)
+    {
+        var name = new StringBuilder(256);
+        GetClassName(window, name, name.Capacity);
+        return name.ToString();
+    }
+
+    private static bool IsExcelWindow(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(window, out uint processId);
         try
         {
             using var process = Process.GetProcessById((int)processId);
@@ -113,6 +149,24 @@ internal static class ClipboardReader
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetClipboardOwner();
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetGUIThreadInfo(uint thread, ref GuiThreadInfo info);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        public int Size;
+        public uint Flags;
+        public IntPtr Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        public int Left, Top, Right, Bottom;
+    }
     [DllImport("user32.dll")]
     private static extern int CountClipboardFormats();
     [DllImport("user32.dll")]
