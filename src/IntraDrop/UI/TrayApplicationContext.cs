@@ -141,7 +141,7 @@ public class TrayApplicationContext : ApplicationContext
         _clipboardStatus = new ToolStripMenuItem("클립보드 자동 공유 중")
         {
             Enabled = false,
-            ToolTipText = "복사한 텍스트·이미지·파일을 등록된 모든 컴퓨터에 자동으로 전달합니다.",
+            ToolTipText = "텍스트·이미지만 자동 공유합니다. 파일·폴더는 보낼 컴퓨터를 지정하세요.",
         };
         menu.Items.Add(_clipboardStatus);
         menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
@@ -393,7 +393,7 @@ public class TrayApplicationContext : ApplicationContext
             "https://github.com/yunhyok/IntraDrop\n\n" +
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
             "· 트레이 아이콘 우클릭 → 도움말: 그림으로 보는 사용법\n" +
-            "· 복사하면 등록된 모든 컴퓨터에 클립보드 자동 공유\n" +
+            "· 텍스트·이미지 복사: 등록된 모든 컴퓨터에 자동 공유\n" +
             "· 컴퓨터 더블클릭: 보내기 창 열기\n" +
             "· 보내기 창에 파일/폴더를 끌어다 놓으면 전송됩니다.",
             AppInfo.DisplayName + " 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
