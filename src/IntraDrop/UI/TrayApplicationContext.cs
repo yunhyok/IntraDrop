@@ -14,7 +14,10 @@ public class TrayApplicationContext : ApplicationContext
     private readonly SynchronizationContext _sync;
     private readonly Dictionary<string, DropForm> _dropForms = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _lifetime = new();
-    private bool _sendingClipboard;
+    private readonly ClipboardBroadcaster _clipboardBroadcaster;
+    private ClipboardMonitor? _clipboardMonitor;
+    private ToolStripMenuItem _clipboardStatus = null!;
+    private DateTime _lastClipboardWarning;
 
     private AppSettings _settings;
     private PeerListForm? _peerList;
@@ -42,6 +45,13 @@ public class TrayApplicationContext : ApplicationContext
             Visible = true,
             ContextMenuStrip = BuildMenu(),
         };
+        _clipboardBroadcaster = new ClipboardBroadcaster(SendClipboardToPeerAsync, (peer, error) =>
+        {
+            if (error != null && !_lifetime.IsCancellationRequested)
+                _sync.Post(_ => ReportClipboardFailure($"{peer.Nickname}: {error.Message}"), null);
+        });
+        try { _clipboardMonitor = new ClipboardMonitor(BroadcastClipboard, ex => ReportClipboardFailure(ex.Message)); }
+        catch (Exception ex) { ReportClipboardFailure("클립보드 감시를 시작하지 못했습니다. " + ex.Message); }
         _tray.DoubleClick += (_, _) => ShowPeerList();
         _tray.BalloonTipClicked += (_, _) =>
         {
@@ -126,12 +136,14 @@ public class TrayApplicationContext : ApplicationContext
 
     private ContextMenuStrip BuildMenu()
     {
-        var menu = new ContextMenuStrip();
+        var menu = new ContextMenuStrip { ShowItemToolTips = true };
         menu.Items.Add("컴퓨터 목록(&L)", null, (_, _) => ShowPeerList());
-        var clipboard = new ToolStripMenuItem("클립보드 전달(&C)");
-        clipboard.DropDownOpening += (_, _) => PopulateClipboardMenu(clipboard);
-        clipboard.DropDownItems.Add("대상 컴퓨터 선택");
-        menu.Items.Add(clipboard);
+        _clipboardStatus = new ToolStripMenuItem("클립보드 자동 공유 중")
+        {
+            Enabled = false,
+            ToolTipText = "복사한 텍스트·이미지·파일을 등록된 모든 컴퓨터에 자동으로 전달합니다.",
+        };
+        menu.Items.Add(_clipboardStatus);
         menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
         menu.Items.Add("다운로드 폴더 열기(&D)", null, (_, _) => OpenDownloadFolder());
         menu.Items.Add(new ToolStripSeparator());
@@ -141,52 +153,40 @@ public class TrayApplicationContext : ApplicationContext
         return menu;
     }
 
-    internal void PopulateClipboardMenu(ToolStripMenuItem menu)
+    private void BroadcastClipboard(ClipboardContent content)
     {
-        foreach (var item in menu.DropDownItems.Cast<ToolStripItem>().ToArray()) item.Dispose();
-        menu.DropDownItems.Clear();
-        var entries = ExplorerContextMenu.BuildSnapshot(_settings).Entries;
-        foreach (var entry in entries)
-        {
-            string token = entry.Token;
-            var item = new ToolStripMenuItem(entry.Label.Replace("&", "&&")) { Enabled = !_sendingClipboard };
-            item.Click += async (_, _) => await SendClipboardAsync(token);
-            menu.DropDownItems.Add(item);
-        }
-        if (entries.Count == 0)
-            menu.DropDownItems.Add(new ToolStripMenuItem("등록된 컴퓨터가 없습니다") { Enabled = false });
-        else if (_sendingClipboard)
-            menu.DropDownItems.Add(new ToolStripMenuItem("클립보드 전달 중...") { Enabled = false });
+        if (_lifetime.IsCancellationRequested) return;
+        var peers = ExplorerContextMenu.BuildSnapshot(_settings).Entries
+            .Where(entry => !string.Equals(entry.DeviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase))
+            .Select(entry => new PeerInfo { Host = entry.Host, DeviceId = entry.DeviceId, Nickname = entry.Label })
+            .ToArray();
+        _clipboardStatus.Text = peers.Length == 0 ? "클립보드 자동 공유 (등록된 컴퓨터 없음)" : "클립보드 자동 공유 중";
+        _clipboardStatus.ToolTipText = $"등록된 컴퓨터 {peers.Length}대에 자동으로 전달합니다.";
+        _clipboardBroadcaster.Publish(peers, content);
     }
 
-    internal async Task SendClipboardAsync(string token)
+    private Task SendClipboardToPeerAsync(PeerInfo target, ClipboardContent content, CancellationToken token)
     {
-        if (_sendingClipboard || _lifetime.IsCancellationRequested) return;
-        _sendingClipboard = true;
-        try
-        {
-            if (!ExplorerContextMenu.TryResolveToken(_settings, token, out var peer))
-                throw new InvalidOperationException("대상 컴퓨터가 변경되었습니다. 메뉴를 다시 열어 선택하세요.");
-            var content = ClipboardService.Capture(Clipboard.GetDataObject());
-            var secret = SettingsStore.ReadSecret(_settings);
-            if (secret.Availability == SettingsStore.SecretAvailability.Unavailable)
-                throw new InvalidOperationException("저장된 공유 암호를 읽을 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
-            int port = _settings.Port;
-            string name = _settings.DeviceName, deviceId = _settings.DeviceId;
-            _tray.ShowBalloonTip(3000, "클립보드 전달 중", $"{peer.Nickname} 컴퓨터로 전달하고 있습니다.", ToolTipIcon.Info);
-            await Task.Run(() => TransferClient.SendClipboardAsync(peer.Host, port, name, content,
-                secret.Secret ?? "", null, _lifetime.Token, deviceId, peer.DeviceId));
-            if (!_lifetime.IsCancellationRequested)
-                _tray.ShowBalloonTip(5000, "클립보드 전달 완료", $"{peer.Nickname} 컴퓨터의 클립보드에 복사했습니다.", ToolTipIcon.Info);
-        }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
-        catch (Exception ex)
-        {
-            if (!_lifetime.IsCancellationRequested)
-                MessageBox.Show($"클립보드를 전달하지 못했습니다.\n{ex.Message}", AppInfo.DisplayName,
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-        }
-        finally { _sendingClipboard = false; }
+        // Resolve again when a queued send starts: peers may have moved or been removed.
+        string? key = ExplorerContextMenu.TokenFor(target);
+        if (key == null || !ExplorerContextMenu.TryResolveToken(_settings, key, out var peer))
+            return Task.CompletedTask;
+        var secret = SettingsStore.ReadSecret(_settings);
+        if (secret.Availability == SettingsStore.SecretAvailability.Unavailable)
+            throw new InvalidOperationException("저장된 공유 암호를 읽을 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
+        return TransferClient.SendClipboardAsync(peer.Host, _settings.Port, _settings.DeviceName, content,
+            secret.Secret ?? "", null, token, _settings.DeviceId, peer.DeviceId);
+    }
+
+    private void ReportClipboardFailure(string reason)
+    {
+        if (_lifetime.IsCancellationRequested) return;
+        _clipboardStatus.Text = "클립보드 자동 공유 (전송 실패)";
+        _clipboardStatus.ToolTipText = reason;
+        // Automatic copies must not open dialogs or flood notifications for an offline peer.
+        if (DateTime.UtcNow - _lastClipboardWarning < TimeSpan.FromMinutes(1)) return;
+        _lastClipboardWarning = DateTime.UtcNow;
+        _tray.ShowBalloonTip(5000, "클립보드 자동 공유 실패", reason, ToolTipIcon.Warning);
     }
 
     private async Task OnClipboardReceivedAsync(string sender, ClipboardContent content)
@@ -199,10 +199,9 @@ public class TrayApplicationContext : ApplicationContext
                 if (_lifetime.IsCancellationRequested) { completion.TrySetCanceled(); return; }
                 try
                 {
-                    ClipboardService.Apply(content);
-                    string description = content.Format == "files" ? $"파일·폴더 {content.Paths.Count}개" : content.Format == "png" ? "이미지" : "텍스트";
-                    _tray.ShowBalloonTip(5000, "클립보드 수신 완료",
-                        $"{sender} 님의 {description}를 클립보드에 복사했습니다.\nCtrl+V로 붙여넣으세요.", ToolTipIcon.Info);
+                    _clipboardBroadcaster.ClearPending();
+                    if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
+                    else ClipboardService.Apply(content);
                     completion.TrySetResult(true);
                 }
                 catch (Exception ex)
@@ -394,7 +393,7 @@ public class TrayApplicationContext : ApplicationContext
             "https://github.com/yunhyok/IntraDrop\n\n" +
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
             "· 트레이 아이콘 우클릭 → 도움말: 그림으로 보는 사용법\n" +
-            "· 트레이 아이콘 우클릭 → 클립보드 전달: 텍스트·이미지·파일 보내기\n" +
+            "· 복사하면 등록된 모든 컴퓨터에 클립보드 자동 공유\n" +
             "· 컴퓨터 더블클릭: 보내기 창 열기\n" +
             "· 보내기 창에 파일/폴더를 끌어다 놓으면 전송됩니다.",
             AppInfo.DisplayName + " 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -403,6 +402,8 @@ public class TrayApplicationContext : ApplicationContext
     private void ExitApp()
     {
         _lifetime.Cancel();
+        _clipboardMonitor?.Dispose();
+        _clipboardBroadcaster.Dispose();
         _tray.Visible = false;
         _discovery.Stop();
         _server.Stop();
@@ -412,5 +413,19 @@ public class TrayApplicationContext : ApplicationContext
         }
         _tray.Dispose();
         ExitThread();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _lifetime.Cancel();
+            _clipboardMonitor?.Dispose();
+            _clipboardBroadcaster.Dispose();
+            _discovery.Stop();
+            _server.Stop();
+            _tray.Dispose();
+        }
+        base.Dispose(disposing);
     }
 }
