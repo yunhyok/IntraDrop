@@ -42,9 +42,19 @@ public static class SettingsStore
                         else loaded.DeviceId = loaded.DeviceId.Trim();
                         if (string.IsNullOrWhiteSpace(loaded.DownloadFolder))
                             loaded.DownloadFolder = AppSettings.DefaultDownloadFolder;
-                        loaded.Peers ??= new List<PeerInfo>();
+                        // 손으로 고친 파일의 null 항목·빈 주소는 목록 창과 전송 경로에서 NRE 를 일으킨다.
+                        loaded.Peers = (loaded.Peers ?? new List<PeerInfo>())
+                            .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Host)).ToList();
+                        foreach (var peer in loaded.Peers)
+                        {
+                            peer.Nickname ??= "";
+                            peer.DeviceId ??= "";
+                            peer.ComputerName ??= "";
+                        }
                         if (loaded.Port is < 1 or > 65535)
                             loaded.Port = 45671;
+                        if (loaded.ConfirmThresholdMB <= 0)
+                            loaded.ConfirmThresholdMB = 256;
                         return loaded;
                     }
                 }
@@ -64,7 +74,11 @@ public static class SettingsStore
         lock (Sync)
         {
             Directory.CreateDirectory(Dir);
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(settings, JsonOptions));
+            // 쓰는 도중 꺼지면 Load 가 기본값으로 대체해 장치 ID·피어·암호를 모두 잃으므로 임시 파일에 쓴 뒤 교체한다.
+            string temp = FilePath + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(settings, JsonOptions));
+            if (File.Exists(FilePath)) File.Replace(temp, FilePath, null);
+            else File.Move(temp, FilePath);
         }
     }
 
@@ -115,16 +129,5 @@ public static class SettingsStore
         byte[] blob = ProtectedData.Protect(
             Encoding.UTF8.GetBytes(plain), SecretEntropy, DataProtectionScope.CurrentUser);
         settings.SecretProtected = Convert.ToBase64String(blob);
-    }
-
-    /// <summary>공유 암호를 보호해 저장한다. 빈 문자열이면 암호를 지운다.</summary>
-    public static void SetSecret(string plain)
-    {
-        lock (Sync)
-        {
-            var settings = Load();
-            SetSecret(settings, plain);
-            Save(settings);
-        }
     }
 }
