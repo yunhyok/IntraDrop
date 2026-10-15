@@ -244,6 +244,58 @@ public sealed class ClipboardTransferTests
         finally { server.Stop(); DeleteRoot(root); }
     }
 
+    [Theory]
+    [InlineData("text", null)]
+    [InlineData("text", "shared-secret")]
+    [InlineData("png", null)]
+    [InlineData("png", "shared-secret")]
+    public async Task RepeatedClipboardApplyFailuresReportStatusWithoutFileFailureNotification(string format, string? secret)
+    {
+        var settings = new AppSettings();
+        if (secret != null) SettingsStore.SetSecret(settings, secret);
+        int fileFailures = 0;
+        var failures = new System.Collections.Concurrent.ConcurrentQueue<(string Sender, string Reason)>();
+        using var reported = new SemaphoreSlim(0);
+        var server = new TransferServer
+        {
+            GetSettings = () => settings,
+            ApplyClipboardAsync = (_, _) => Task.FromException(new InvalidOperationException("clipboard busy")),
+        };
+        server.TransferFailed += (_, _) => Interlocked.Increment(ref fileFailures);
+        server.ClipboardReceiveFailed += (sender, reason) =>
+        {
+            failures.Enqueue((sender, reason));
+            reported.Release();
+        };
+        int port = FreePort();
+        server.Start(port);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var content = new ClipboardContent
+            {
+                Format = format,
+                Data = format == "text" ? Encoding.UTF8.GetBytes("copy without pasting") : MakePng(),
+            };
+            for (int attempt = 0; attempt < 3; attempt++)
+            {
+                var error = await Assert.ThrowsAsync<IOException>(() => TransferClient.SendClipboardAsync(
+                    "127.0.0.1", port, "sender", content, secret, null, timeout.Token,
+                    Guid.NewGuid().ToString("N"), settings.DeviceId));
+                Assert.Contains("클립보드 적용", error.Message);
+                await reported.WaitAsync(timeout.Token);
+            }
+            Assert.Equal(3, failures.Count);
+            Assert.All(failures, failure =>
+            {
+                Assert.Equal("sender", failure.Sender);
+                Assert.Equal("clipboard busy", failure.Reason);
+            });
+            Assert.Equal(0, Volatile.Read(ref fileFailures));
+        }
+        finally { server.Stop(); }
+    }
+
     [Fact]
     public async Task CallbackFailureReturnsFailureAndKeepsVerifiedFiles()
     {
@@ -256,6 +308,10 @@ public sealed class ClipboardTransferTests
             GetSettings = () => settings,
             ApplyClipboardAsync = (_, _) => Task.FromException(new InvalidOperationException("clipboard busy")),
         };
+        var failure = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int clipboardFailures = 0;
+        server.TransferFailed += (_, reason) => failure.TrySetResult(reason);
+        server.ClipboardReceiveFailed += (_, _) => Interlocked.Increment(ref clipboardFailures);
         int port = FreePort();
         server.Start(port);
         try
@@ -264,6 +320,8 @@ public sealed class ClipboardTransferTests
                 "127.0.0.1", port, "sender", new ClipboardContent { Format = "files", Paths = new[] { source } },
                 null, null, CancellationToken.None));
             Assert.Contains("클립보드", error.Message);
+            Assert.Equal("clipboard busy", await failure.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal(0, Volatile.Read(ref clipboardFailures));
             string batch = Assert.Single(Directory.GetDirectories(settings.DownloadFolder, "Clipboard-*"));
             Assert.Equal("retained", File.ReadAllText(Path.Combine(batch, "report.txt")));
             Assert.Empty(Directory.GetDirectories(settings.DownloadFolder, ".intradrop-*.part"));

@@ -44,6 +44,7 @@ public class TransferServer
 
     public event Action<string, int, string>? TransferCompleted;   // 보낸이, 파일 수, 저장 폴더
     public event Action<string, string>? TransferFailed;           // 보낸이, 사유
+    public event Action<string, string>? ClipboardReceiveFailed;   // 텍스트·이미지 자동 공유: 트레이 상태만 갱신
     public event Action<string, long>? TransferRejected;           // 보낸이, 크기
     public event Action<string, string>? PeerAutoRegistered;       // 별명, IP
     public event Action? PeerAddressChanged;
@@ -100,6 +101,7 @@ public class TransferServer
     {
         string sender = "알 수 없음";
         bool headerReceived = false;
+        bool textOrImageClipboard = false;
         try
         {
             using var _ = client;
@@ -151,6 +153,8 @@ public class TransferServer
 
             var header = Protocol.FromJsonBytes<TransferHeader>(json);
             headerReceived = true;
+            textOrImageClipboard = header.Type == "clipboard" &&
+                (header.ClipboardFormat == "text" || header.ClipboardFormat == "png");
             sender = string.IsNullOrWhiteSpace(header.SenderName) ? sender : header.SenderName;
 
             // ping 은 언제나 평문이며 서버 암호 설정과 무관하게 응답한다 (온라인 표시용).
@@ -203,7 +207,9 @@ public class TransferServer
         catch (Exception ex)
         {
             // 헤더도 받기 전에 끊긴 연결(포트 스캔, 상태 확인 등)은 조용히 무시
-            if (headerReceived)
+            if (textOrImageClipboard)
+                ClipboardReceiveFailed?.Invoke(sender, ex.Message);
+            else if (headerReceived)
                 TransferFailed?.Invoke(sender, ex.Message);
         }
     }

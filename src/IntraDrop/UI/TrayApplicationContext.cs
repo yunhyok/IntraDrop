@@ -17,7 +17,6 @@ public class TrayApplicationContext : ApplicationContext
     private readonly ClipboardBroadcaster _clipboardBroadcaster;
     private ClipboardMonitor? _clipboardMonitor;
     private ToolStripMenuItem _clipboardStatus = null!;
-    private DateTime _lastClipboardWarning;
 
     private AppSettings _settings;
     private PeerListForm? _peerList;
@@ -65,6 +64,8 @@ public class TrayApplicationContext : ApplicationContext
         _server.TransferCompleted += OnTransferCompleted;
         _server.ApplyClipboardAsync = OnClipboardReceivedAsync;
         _server.TransferFailed += OnTransferFailed;
+        _server.ClipboardReceiveFailed += (sender, reason) =>
+            _sync.Post(_ => ReportClipboardFailure($"{sender}: {reason}"), null);
         _server.TransferRejected += OnTransferRejected;
         _server.PeerAutoRegistered += OnPeerAutoRegistered;
         _server.PeerAddressChanged += () => _sync.Post(_ => _peerList?.NotifyPeersChanged(), null);
@@ -183,10 +184,6 @@ public class TrayApplicationContext : ApplicationContext
         if (_lifetime.IsCancellationRequested) return;
         _clipboardStatus.Text = "클립보드 자동 공유 (전송 실패)";
         _clipboardStatus.ToolTipText = reason;
-        // Automatic copies must not open dialogs or flood notifications for an offline peer.
-        if (DateTime.UtcNow - _lastClipboardWarning < TimeSpan.FromMinutes(1)) return;
-        _lastClipboardWarning = DateTime.UtcNow;
-        _tray.ShowBalloonTip(5000, "클립보드 자동 공유 실패", reason, ToolTipIcon.Warning);
     }
 
     private async Task OnClipboardReceivedAsync(string sender, ClipboardContent content)
