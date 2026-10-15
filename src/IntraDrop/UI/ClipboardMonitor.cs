@@ -50,10 +50,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         ClipboardContent? content = null;
         try
         {
-            var data = Clipboard.GetDataObject();
-            // Received data keeps this marker even if OLE renders it later.
-            if (data != null && !data.GetDataPresent(ClipboardService.ReceivedFormat, false))
-                content = ClipboardService.Capture(data);
+            content = ClipboardService.CaptureAutomatic(Clipboard.GetDataObject());
         }
         catch (ExternalException ex)
         {

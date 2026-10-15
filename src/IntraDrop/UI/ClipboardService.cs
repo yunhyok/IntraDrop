@@ -11,6 +11,18 @@ internal static class ClipboardService
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private const long MaxImagePixels = 25_000_000;
 
+    public static ClipboardContent? CaptureAutomatic(IDataObject? data)
+    {
+        // File copies can also offer text/previews; never share those fallback formats.
+        if (data == null || data.GetDataPresent(ReceivedFormat, false) ||
+            data.GetDataPresent(DataFormats.FileDrop) ||
+            data.GetDataPresent("Shell IDList Array", false) || data.GetDataPresent("MountedVolume", false) ||
+            data.GetDataPresent("FileName", false) || data.GetDataPresent("FileNameW", false) ||
+            data.GetDataPresent("FileGroupDescriptor", false) || data.GetDataPresent("FileGroupDescriptorW", false) ||
+            data.GetDataPresent("FileContents", false)) return null;
+        return Capture(data);
+    }
+
     // Read only portable Windows formats; never deserialize application-specific objects.
     public static ClipboardContent Capture(IDataObject? data)
     {

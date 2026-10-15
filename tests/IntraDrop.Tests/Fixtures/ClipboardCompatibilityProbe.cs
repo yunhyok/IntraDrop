@@ -35,6 +35,7 @@ internal static class ClipboardCompatibilityProbe
         ClipboardMonitor? monitor = null;
         ClipboardBroadcaster? broadcaster = null;
         TaskCompletionSource<bool>? sent = null;
+        int automaticCopies = 0;
         using var timer = new System.Windows.Forms.Timer { Interval = 200 };
         timer.Tick += (_, _) => { if (File.Exists(Path.Combine(root, "stop"))) form.Close(); };
         form.Shown += async (_, _) =>
@@ -53,7 +54,11 @@ internal static class ClipboardCompatibilityProbe
                 typeof(TrayApplicationContext).GetField("_clipboardBroadcaster", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, broadcaster);
                 monitor = new ClipboardMonitor(content =>
                 {
-                    if (mode == "send") typeof(TrayApplicationContext).GetMethod("BroadcastClipboard", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, new object[] { content });
+                    if (mode == "send")
+                    {
+                        automaticCopies++;
+                        typeof(TrayApplicationContext).GetMethod("BroadcastClipboard", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, new object[] { content });
+                    }
                 }, error => sent?.TrySetException(error));
                 typeof(TrayApplicationContext).GetField("_clipboardMonitor", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, monitor);
                 if (mode == "receive")
@@ -131,17 +136,38 @@ internal static class ClipboardCompatibilityProbe
                     }
                     else
                     {
+                        int before = automaticCopies;
                         var paths = new System.Collections.Specialized.StringCollection();
                         paths.AddRange(content.Paths.ToArray());
-                        Clipboard.SetFileDropList(paths);
+                        foreach (byte effect in new byte[] { 1, 2 })
+                        {
+                            var data = new DataObject();
+                            data.SetFileDropList(paths);
+                            data.SetText("file preview must stay local");
+                            using var dropEffect = new MemoryStream(new byte[] { effect, 0, 0, 0 });
+                            data.SetData("Preferred DropEffect", dropEffect);
+                            Clipboard.SetDataObject(data, true);
+                            await Task.Delay(600);
+                            if (automaticCopies != before || sent.Task.IsCompleted)
+                                throw new Exception("File copy/cut triggered automatic sharing");
+                            if (!Clipboard.GetFileDropList().Cast<string>().SequenceEqual(content.Paths))
+                                throw new Exception("Local file clipboard changed");
+                            using var actualEffect = (MemoryStream)Clipboard.GetData("Preferred DropEffect")!;
+                            if (actualEffect.ToArray()[0] != effect) throw new Exception("Local copy/cut effect changed");
+                        }
+                        // Explicitly targeted file transport remains compatible with older peers.
+                        await TransferClient.SendClipboardAsync("127.0.0.2", port, settings.DeviceName, content,
+                            "clipboard-local-smoke-only", null, lifetime.Token, settings.DeviceId, settings.Peers[0].DeviceId);
+                        continue;
                     }
                     if (await Task.WhenAny(sent.Task, Task.Delay(15000)) != sent.Task)
-                        throw new TimeoutException("Automatic clipboard sharing did not complete: " + content.Format);
+                        throw new TimeoutException("Automatic clipboard sharing did not complete: " + content.Format +
+                            "; callbacks=" + automaticCopies + "; formats=" + string.Join(",", Clipboard.GetDataObject()?.GetFormats(false) ?? Array.Empty<string>()));
                     await sent.Task;
                 }
                 var files = Directory.GetFiles(settings.DownloadFolder, "*.txt", SearchOption.AllDirectories);
                 if (files.Length != 2 || !files.Any(p => File.ReadAllText(p) == "first") || !files.Any(p => File.ReadAllText(p) == "second")) throw new Exception("Saved files mismatch");
-                File.WriteAllText(Path.Combine(root, "success"), "Automatic clipboard listener, peer identity, alias, Unicode, PNG pixels, files, duplicate names, empty folder: PASS");
+                File.WriteAllText(Path.Combine(root, "success"), "Automatic text/image sharing, local file copy/cut, targeted file transport, peer identity, alias, duplicate names, empty folder: PASS");
                 form.Close();
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(root, "error-" + mode + ".txt"), ex.ToString()); form.Close(); Environment.ExitCode = 1; }
@@ -157,4 +183,5 @@ internal static class ClipboardCompatibilityProbe
         };
         Application.Run(form);
     }
+
 }

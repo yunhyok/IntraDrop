@@ -23,6 +23,7 @@ public sealed class ClipboardUiTests
         var data = new DataObject();
         data.SetText(text, TextDataFormat.UnicodeText);
         Assert.Equal(text, Encoding.UTF8.GetString(ClipboardService.Capture(data).Data));
+        Assert.Equal(text, Encoding.UTF8.GetString(ClipboardService.CaptureAutomatic(data)!.Data));
         data.SetData(DataFormats.FileDrop, new[] { @"C:\selected\file.txt" });
         Assert.Equal("files", ClipboardService.Capture(data).Format);
         Assert.Throws<InvalidOperationException>(() => ClipboardService.Capture(new DataObject("PrivateApplicationObject", "opaque")));
@@ -37,6 +38,24 @@ public sealed class ClipboardUiTests
         Assert.Empty(clipboard.DropDownItems.Cast<ToolStripItem>());
         Assert.False(clipboard.Enabled);
         Assert.DoesNotContain(menu.Items.OfType<ToolStripMenuItem>(), i => i.Text?.Contains("클립보드 전달") == true);
+    });
+
+    [Fact]
+    public Task AutomaticCaptureSkipsFileCopiesBeforeReadingTheirTextFallback() => OnSta(() =>
+    {
+        Assert.Null(ClipboardService.CaptureAutomatic(null));
+        var pathText = new DataObject(DataFormats.UnicodeText, @"C:\a path typed as plain text.txt");
+        Assert.Equal("text", ClipboardService.CaptureAutomatic(pathText)!.Format);
+        using var preview = new Bitmap(2, 2);
+        foreach (string format in new[] { DataFormats.FileDrop, "Shell IDList Array", "MountedVolume", "FileName", "FileNameW", "FileGroupDescriptor", "FileGroupDescriptorW", "FileContents" })
+        {
+            var data = new DataObject();
+            data.SetText("private filename or file preview");
+            data.SetImage(preview);
+            using var payload = new MemoryStream(new byte[] { 0 });
+            data.SetData(format, false, payload);
+            Assert.Null(ClipboardService.CaptureAutomatic(data));
+        }
     });
 
     [Fact]
@@ -71,12 +90,58 @@ public sealed class ClipboardUiTests
         using var bitmap = new Bitmap(32, 16);
         var data = new DataObject();
         data.SetImage(bitmap);
-        var content = ClipboardService.Capture(data);
+        var content = ClipboardService.CaptureAutomatic(data)!;
         Assert.Equal("png", content.Format);
         ClipboardContent.ValidateData("png", content.Data);
         content.Data[16] = 0x7f;
         Assert.Throws<InvalidDataException>(() => ClipboardContent.ValidateData("png", content.Data));
         Assert.Throws<InvalidDataException>(() => ClipboardContent.ValidateData("png", new byte[33]));
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task FileCopyAndCutStayLocalWithoutChangingClipboardOrFiles() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        string folder = Directory.CreateTempSubdirectory("IntraDrop-local-files-").FullName;
+        string file = Path.Combine(folder, "local.txt");
+        File.WriteAllText(file, "keep local");
+        var copies = new List<ClipboardContent>();
+        var errors = new List<Exception>();
+        try
+        {
+            using var monitor = new ClipboardMonitor(copies.Add, errors.Add);
+            foreach (byte effect in new byte[] { 1, 2 })
+            {
+                var data = new DataObject();
+                var paths = new System.Collections.Specialized.StringCollection();
+                paths.AddRange(new[] { file, folder });
+                data.SetFileDropList(paths);
+                data.SetText("file preview must not be shared either");
+                using var dropEffect = new MemoryStream(new byte[] { effect, 0, 0, 0 });
+                data.SetData("Preferred DropEffect", dropEffect);
+                Clipboard.SetDataObject(data, true);
+                PumpFor(500);
+                Assert.Empty(copies);
+                Assert.Equal(new[] { file, folder }, Clipboard.GetFileDropList().Cast<string>());
+                using var actualEffect = (MemoryStream)Clipboard.GetData("Preferred DropEffect")!;
+                Assert.Equal(effect, actualEffect.ToArray()[0]);
+                Assert.Equal("keep local", File.ReadAllText(file));
+            }
+            Clipboard.SetText("text still shares");
+            PumpUntil(() => copies.Count == 1);
+            using var bitmap = new Bitmap(8, 8);
+            Clipboard.SetImage(bitmap);
+            PumpUntil(() => copies.Count == 2);
+            Assert.Equal(new[] { "text", "png" }, copies.Select(content => content.Format));
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100);
+            else Clipboard.Clear();
+            Directory.Delete(folder, true);
+        }
     });
 
     [Fact]
