@@ -148,6 +148,30 @@ public sealed class ClipboardUiTests
 
     [Fact]
     [Trait("Category", "InteractiveShell")]
+    public Task CaptureWaitsWhileLocalInteractionDefersIt() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            Clipboard.Clear();
+            bool busy = true;
+            var copies = new List<ClipboardContent>();
+            using var monitor = new ClipboardMonitor(copies.Add, _ => { }, () => busy);
+            Clipboard.SetText("deferred copy");
+            PumpFor(600);
+            Assert.Empty(copies);
+            busy = false;
+            PumpUntil(() => copies.Count == 1);
+            Assert.Equal("deferred copy", Encoding.UTF8.GetString(copies[0].Data));
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
     public Task NativeReaderPreservesUnicodeAndSkipsShellFileFallbacks() => OnSta(() =>
     {
         var original = Clipboard.GetDataObject();
