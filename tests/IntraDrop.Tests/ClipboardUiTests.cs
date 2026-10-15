@@ -10,10 +10,14 @@ using Xunit;
 
 namespace IntraDrop.Tests;
 
+[CollectionDefinition("Native clipboard", DisableParallelization = true)]
+public sealed class NativeClipboardCollection { }
+
+[Collection("Native clipboard")]
 public sealed class ClipboardUiTests
 {
     [Fact]
-    public Task PortableFormatsAndDynamicDestinationMenu() => OnSta(() =>
+    public Task PortableFormatsAndAutomaticSharingMenu() => OnSta(() =>
     {
         const string text = "한글 clipboard\r\n둘째 줄 😀";
         var data = new DataObject();
@@ -29,17 +33,36 @@ public sealed class ClipboardUiTests
         var settings = new AppSettings();
         typeof(TrayApplicationContext).GetField("_settings", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, settings);
         using var menu = (ContextMenuStrip)typeof(TrayApplicationContext).GetMethod("BuildMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, null)!;
-        var clipboard = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text?.StartsWith("클립보드 전달") == true);
-        context.PopulateClipboardMenu(clipboard);
-        Assert.False(clipboard.DropDownItems[0].Enabled);
-        settings.Peers.Add(new PeerInfo { Nickname = "Windows 7 & Lab", Host = "127.0.0.2", DeviceId = Guid.NewGuid().ToString("N") });
-        context.PopulateClipboardMenu(clipboard);
-        Assert.Single(clipboard.DropDownItems.Cast<ToolStripItem>());
-        Assert.Contains("Windows 7 && Lab", clipboard.DropDownItems[0].Text);
-        Assert.True(clipboard.DropDownItems[0].Enabled);
-        settings.Peers.Clear();
-        context.PopulateClipboardMenu(clipboard);
-        Assert.False(clipboard.DropDownItems[0].Enabled);
+        var clipboard = menu.Items.OfType<ToolStripMenuItem>().Single(i => i.Text == "클립보드 자동 공유 중");
+        Assert.Empty(clipboard.DropDownItems.Cast<ToolStripItem>());
+        Assert.False(clipboard.Enabled);
+        Assert.DoesNotContain(menu.Items.OfType<ToolStripMenuItem>(), i => i.Text?.Contains("클립보드 전달") == true);
+    });
+
+    [Fact]
+    public Task BroadcastUsesAllRegisteredComputersWithoutSelectingATarget() => OnSta(() =>
+    {
+        var settings = new AppSettings();
+        var first = new PeerInfo { Host = "192.0.2.1", DeviceId = Guid.NewGuid().ToString("N") };
+        var second = new PeerInfo { Host = "192.0.2.2", DeviceId = Guid.NewGuid().ToString("N") };
+        settings.Peers.AddRange(new[] { first, second, new PeerInfo { Host = "192.0.2.3", DeviceId = settings.DeviceId } });
+        var sent = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var completed = new CountdownEvent(2);
+        using var lifetime = new CancellationTokenSource();
+        using var broadcaster = new ClipboardBroadcaster((peer, content, _) =>
+        {
+            Assert.Equal("all peers", Encoding.UTF8.GetString(content.Data));
+            sent.Add(peer.Host);
+            return Task.CompletedTask;
+        }, (_, _) => completed.Signal());
+        var context = (TrayApplicationContext)RuntimeHelpers.GetUninitializedObject(typeof(TrayApplicationContext));
+        foreach (var pair in new Dictionary<string, object> { ["_settings"] = settings, ["_lifetime"] = lifetime, ["_clipboardBroadcaster"] = broadcaster })
+            typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+        using var menu = (ContextMenuStrip)typeof(TrayApplicationContext).GetMethod("BuildMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, null)!;
+        typeof(TrayApplicationContext).GetMethod("BroadcastClipboard", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context,
+            new object[] { new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("all peers") } });
+        Assert.True(completed.Wait(TimeSpan.FromSeconds(5)));
+        Assert.Equal(new[] { first.Host, second.Host }, sent.OrderBy(host => host));
     });
 
     [Fact]
@@ -54,6 +77,62 @@ public sealed class ClipboardUiTests
         content.Data[16] = 0x7f;
         Assert.Throws<InvalidDataException>(() => ClipboardContent.ValidateData("png", content.Data));
         Assert.Throws<InvalidDataException>(() => ClipboardContent.ValidateData("png", new byte[33]));
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task LocalCopiesAreObservedWithoutRebroadcastingReceivedFormats() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        string folder = Directory.CreateTempSubdirectory("IntraDrop-monitor-").FullName;
+        var copies = new List<ClipboardContent>();
+        var errors = new List<Exception>();
+        try
+        {
+            Clipboard.SetText("existing clipboard must stay local");
+            using var monitor = new ClipboardMonitor(copies.Add, errors.Add);
+            PumpFor(300);
+            Assert.Empty(copies);
+
+            Clipboard.SetText("local copy 한글");
+            PumpUntil(() => copies.Count == 1);
+            Assert.Equal("local copy 한글", Encoding.UTF8.GetString(copies[0].Data));
+
+            monitor.ApplyReceived(new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("remote") });
+            PumpFor(300);
+            Assert.Single(copies);
+            Assert.Equal("remote", Clipboard.GetText());
+
+            using var bitmap = new Bitmap(8, 8);
+            var data = new DataObject();
+            data.SetImage(bitmap);
+            // Direct writes also carry the marker, covering delayed notifications/rendering.
+            ClipboardService.Apply(ClipboardService.Capture(data));
+            PumpFor(300);
+            Assert.Single(copies);
+            ClipboardService.Apply(new ClipboardContent { Format = "files", Paths = new[] { folder } });
+            PumpFor(300);
+            Assert.Single(copies);
+            Assert.Equal(folder, Assert.Single(Clipboard.GetFileDropList().Cast<string>()));
+
+            Clipboard.Clear();
+            PumpFor(300);
+            Assert.Single(copies);
+            Clipboard.SetText("next local copy");
+            PumpUntil(() => copies.Count == 2);
+            Assert.Equal("next local copy", Encoding.UTF8.GetString(copies[1].Data));
+            monitor.Dispose();
+            Clipboard.SetText("after disposal");
+            PumpFor(300);
+            Assert.Equal(2, copies.Count);
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100);
+            else Clipboard.Clear();
+            Directory.Delete(folder, true);
+        }
     });
 
     [Fact]
@@ -89,6 +168,19 @@ public sealed class ClipboardUiTests
             Directory.Delete(folder, true);
         }
     });
+
+    private static void PumpUntil(Func<bool> completed)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!completed() && DateTime.UtcNow < deadline) PumpFor(20);
+        Assert.True(completed(), "Clipboard update was not delivered by the native message loop.");
+    }
+
+    private static void PumpFor(int milliseconds)
+    {
+        var until = DateTime.UtcNow.AddMilliseconds(milliseconds);
+        do { Application.DoEvents(); Thread.Sleep(10); } while (DateTime.UtcNow < until);
+    }
 
     private static async Task OnSta(Action action)
     {

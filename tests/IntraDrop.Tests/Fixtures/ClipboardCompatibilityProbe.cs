@@ -32,6 +32,9 @@ internal static class ClipboardCompatibilityProbe
         var original = mode == "receive" ? null : Clipboard.GetDataObject();
         using var tray = new NotifyIcon { Text = AppInfo.DisplayName + " 검증", Icon = SystemIcons.Application, Visible = true };
         using var lifetime = new CancellationTokenSource();
+        ClipboardMonitor? monitor = null;
+        ClipboardBroadcaster? broadcaster = null;
+        TaskCompletionSource<bool>? sent = null;
         using var timer = new System.Windows.Forms.Timer { Interval = 200 };
         timer.Tick += (_, _) => { if (File.Exists(Path.Combine(root, "stop"))) form.Close(); };
         form.Shown += async (_, _) =>
@@ -43,6 +46,16 @@ internal static class ClipboardCompatibilityProbe
 #pragma warning restore SYSLIB0050
                 foreach (var pair in new Dictionary<string, object> { ["_settings"] = settings, ["_sync"] = SynchronizationContext.Current!, ["_tray"] = tray, ["_lifetime"] = lifetime })
                     typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+                tray.ContextMenuStrip = (ContextMenuStrip)typeof(TrayApplicationContext).GetMethod("BuildMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, null)!;
+                broadcaster = new ClipboardBroadcaster((peer, content, token) =>
+                    (Task)typeof(TrayApplicationContext).GetMethod("SendClipboardToPeerAsync", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, new object[] { peer, content, token })!,
+                    (_, error) => { if (error == null) sent?.TrySetResult(true); else sent?.TrySetException(error); });
+                typeof(TrayApplicationContext).GetField("_clipboardBroadcaster", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, broadcaster);
+                monitor = new ClipboardMonitor(content =>
+                {
+                    if (mode == "send") typeof(TrayApplicationContext).GetMethod("BroadcastClipboard", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, new object[] { content });
+                }, error => sent?.TrySetException(error));
+                typeof(TrayApplicationContext).GetField("_clipboardMonitor", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, monitor);
                 if (mode == "receive")
                 {
                     server.ApplyClipboardAsync = async (sender, content) =>
@@ -108,21 +121,34 @@ internal static class ClipboardCompatibilityProbe
                 contents.Add(new ClipboardContent { Format = "files", Paths = new[] { first, second, folder } });
                 foreach (var content in contents)
                 {
-                    ClipboardService.Apply(content);
-                    var captured = ClipboardService.Capture(Clipboard.GetDataObject());
-                    await TransferClient.SendClipboardAsync("127.0.0.2", port, settings.DeviceName, captured,
-                        "clipboard-local-smoke-only", null, lifetime.Token, settings.DeviceId, settings.Peers[0].DeviceId);
+                    sent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    if (content.Format == "text") Clipboard.SetText(Encoding.UTF8.GetString(content.Data));
+                    else if (content.Format == "png")
+                    {
+                        using var stream = new MemoryStream(content.Data);
+                        using var image = Image.FromStream(stream);
+                        Clipboard.SetImage(image);
+                    }
+                    else
+                    {
+                        var paths = new System.Collections.Specialized.StringCollection();
+                        paths.AddRange(content.Paths.ToArray());
+                        Clipboard.SetFileDropList(paths);
+                    }
+                    if (await Task.WhenAny(sent.Task, Task.Delay(15000)) != sent.Task)
+                        throw new TimeoutException("Automatic clipboard sharing did not complete: " + content.Format);
+                    await sent.Task;
                 }
                 var files = Directory.GetFiles(settings.DownloadFolder, "*.txt", SearchOption.AllDirectories);
                 if (files.Length != 2 || !files.Any(p => File.ReadAllText(p) == "first") || !files.Any(p => File.ReadAllText(p) == "second")) throw new Exception("Saved files mismatch");
-                File.WriteAllText(Path.Combine(root, "success"), "Peer identity, alias, Unicode, PNG pixels, files, duplicate names, empty folder: PASS");
+                File.WriteAllText(Path.Combine(root, "success"), "Automatic clipboard listener, peer identity, alias, Unicode, PNG pixels, files, duplicate names, empty folder: PASS");
                 form.Close();
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(root, "error-" + mode + ".txt"), ex.ToString()); form.Close(); Environment.ExitCode = 1; }
         };
         form.FormClosed += (_, _) =>
         {
-            lifetime.Cancel(); server.Stop(); tray.Visible = false;
+            lifetime.Cancel(); monitor?.Dispose(); broadcaster?.Dispose(); server.Stop(); tray.Visible = false;
             if (mode != "receive")
             {
                 if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();

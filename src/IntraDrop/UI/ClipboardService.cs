@@ -7,6 +7,7 @@ namespace IntraDrop.UI;
 
 internal static class ClipboardService
 {
+    internal const string ReceivedFormat = "IntraDrop.ReceivedClipboard";
     private static readonly UTF8Encoding Utf8 = new(false, true);
     private const long MaxImagePixels = 25_000_000;
 
@@ -46,6 +47,7 @@ internal static class ClipboardService
     public static void Apply(ClipboardContent content)
     {
         var data = new DataObject();
+        data.SetData(ReceivedFormat, false, "1");
         using var copyEffect = new MemoryStream(new byte[] { 1, 0, 0, 0 });
         if (content.Format == "files")
         {
