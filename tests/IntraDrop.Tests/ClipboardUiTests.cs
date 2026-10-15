@@ -41,6 +41,24 @@ public sealed class ClipboardUiTests
     });
 
     [Fact]
+    public Task AutomaticFailuresOnlyUpdateMenuStatus() => OnSta(() =>
+    {
+        var context = (TrayApplicationContext)RuntimeHelpers.GetUninitializedObject(typeof(TrayApplicationContext));
+        using var lifetime = new CancellationTokenSource();
+        using var status = new ToolStripMenuItem();
+        foreach (var pair in new Dictionary<string, object> { ["_lifetime"] = lifetime, ["_clipboardStatus"] = status })
+            typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+        // No NotifyIcon is provided: automatic errors must not try to display a balloon.
+        var report = typeof(TrayApplicationContext).GetMethod("ReportClipboardFailure", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        foreach (string reason in new[] { "offline", "clipboard busy", "application failed" })
+        {
+            report.Invoke(context, new object[] { reason });
+            Assert.Equal("클립보드 자동 공유 (전송 실패)", status.Text);
+            Assert.Equal(reason, status.ToolTipText);
+        }
+    });
+
+    [Fact]
     public Task AutomaticCaptureSkipsFileCopiesBeforeReadingTheirTextFallback() => OnSta(() =>
     {
         Assert.Null(ClipboardService.CaptureAutomatic(null));

@@ -29,6 +29,7 @@ internal static class ClipboardCompatibilityProbe
         SettingsStore.SetSecret(settings, "clipboard-local-smoke-only");
         var server = new TransferServer { GetSettings = () => settings, SavePeers = () => { } };
         server.TransferFailed += (_, reason) => File.AppendAllText(Path.Combine(root, "transfer-errors.txt"), reason + "\n");
+        server.ClipboardReceiveFailed += (_, reason) => File.AppendAllText(Path.Combine(root, "transfer-errors.txt"), reason + "\n");
         var original = mode == "receive" ? null : Clipboard.GetDataObject();
         using var tray = new NotifyIcon { Text = AppInfo.DisplayName + " 검증", Icon = SystemIcons.Application, Visible = true };
         using var lifetime = new CancellationTokenSource();
