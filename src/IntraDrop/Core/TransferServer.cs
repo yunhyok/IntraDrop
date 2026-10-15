@@ -445,7 +445,16 @@ public class TransferServer
             }
             await reader.CompleteAsync(ct);
 
-            Directory.Move(stage, batch);
+            // Windows refuses to rename a directory while anything inside it is open, and real-time
+            // scanners briefly hold freshly written files. Retry briefly instead of failing the batch.
+            for (int attempt = 0; ; attempt++)
+            {
+                try { Directory.Move(stage, batch); break; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < 40)
+                {
+                    await Task.Delay(50, ct);
+                }
+            }
             stage = "";
             receivedRoots = manifest.Where(item => item.IsRoot)
                 .Select(item => Path.Combine(batch, item.RelPath)).ToArray();
