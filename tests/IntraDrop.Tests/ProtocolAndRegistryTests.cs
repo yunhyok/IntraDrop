@@ -146,6 +146,39 @@ public sealed class ProtocolAndRegistryTests
         finally { server.Stop(); try { Directory.Delete(root, true); } catch { } }
     }
 
+    [Fact]
+    public async Task SecuredRegisteredOnly_AcceptsNamedAndUnpairedRowsButBindsIdentityToStoredAddress()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "IntraDrop-test-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        string source = Path.Combine(root, "source.txt");
+        await File.WriteAllTextAsync(source, "test");
+        var settings = new AppSettings { DeviceId = Guid.NewGuid().ToString(), DownloadFolder = Path.Combine(root, "received"), AcceptFromRegisteredOnly = true };
+        SettingsStore.SetSecret(settings, "test-shared-secret");
+        string senderId = Guid.NewGuid().ToString();
+        var server = new TransferServer { GetSettings = () => settings, ConfirmRequest = _ => true };
+        int port = GetFreePort(); server.Start(port);
+        Task<int> Send() => TransferClient.SendAsync("127.0.0.1", port, "sender", new[] { source }, "test-shared-secret", null, CancellationToken.None, senderId, settings.DeviceId);
+        try
+        {
+            // Rows registered by computer name never get paired, so they must still pass by address.
+            settings.Peers.Add(new PeerInfo { Host = "localhost", Nickname = "by-name" });
+            Assert.Equal(1, await Send());
+            // An authenticated row stored by name resolves that name.
+            settings.Peers.Clear();
+            settings.Peers.Add(new PeerInfo { Host = "localhost", DeviceId = senderId });
+            Assert.Equal(1, await Send());
+            // An authenticated row keeps the device ID bound to its stored address even when another row matches the IP.
+            settings.Peers.Clear();
+            settings.Peers.Add(new PeerInfo { Host = "192.0.2.1", DeviceId = senderId });
+            settings.Peers.Add(new PeerInfo { Host = "127.0.0.1", Nickname = "legacy" });
+            var ex = await Assert.ThrowsAsync<TransferStatusException>(() => Send());
+            Assert.Equal(Protocol.StatusNotRegistered, ex.Status);
+            Assert.Equal(2, Directory.GetFiles(settings.DownloadFolder).Length);
+        }
+        finally { server.Stop(); try { Directory.Delete(root, true); } catch { } }
+    }
+
     private static int GetFreePort()
     {
         using var listener = new System.Net.Sockets.TcpListener(IPAddress.Loopback, 0);

@@ -13,9 +13,6 @@ public class TransferServer
     private const int DrainIdleMs = 3_000;
     private const long DrainMaxBytes = 4L << 20;
 
-    private static readonly string AppVersion =
-        typeof(TransferServer).Assembly.GetName().Version?.ToString(3) ?? "1.0.0";
-
     private PeerRegistry? _peerRegistry;
 
     private TcpListener? _listener;
@@ -161,7 +158,7 @@ public class TransferServer
             if (header.Type == "ping")
             {
                 await Protocol.WriteJsonAsync(stream,
-                    new PongMessage { Name = settings.DeviceName, Version = AppVersion }, ct);
+                    new PongMessage { Name = settings.DeviceName, Version = AppInfo.Version }, ct);
                 return;
             }
 
@@ -515,9 +512,7 @@ public class TransferServer
         string sender = string.IsNullOrWhiteSpace(header.SenderName) ? "알 수 없음" : header.SenderName;
         if (settings.AcceptFromRegisteredOnly)
         {
-            bool known = key != null && !string.IsNullOrWhiteSpace(header.SenderDeviceId)
-                ? remote != null && IsRegisteredDevice(settings, header.SenderDeviceId, remote)
-                : remote != null && await IsRegisteredAsync(settings, remote);
+            bool known = remote != null && await IsRegisteredSenderAsync(settings, header, key, remote);
             if (!known)
             {
                 await RejectAsync(stream, Protocol.StatusNotRegistered, ct);
@@ -729,12 +724,6 @@ public class TransferServer
         TransferCompleted?.Invoke(sender, items.Count, folder);
     }
 
-    private bool IsRegisteredDevice(AppSettings settings, string deviceId, IPAddress remote)
-    {
-        var matches = (_peerRegistry ?? new PeerRegistry(settings)).Snapshot().Where(p => string.Equals(p.DeviceId?.Trim(), deviceId.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
-        return matches.Count == 1 && IPAddress.TryParse(matches[0].Host?.Trim(), out var parsed) && SameAddress(parsed, remote);
-    }
-
     private static void DeleteParts(List<(string PartPath, string DestPath)> pending)
     {
         foreach (var (partPath, _) in pending)
@@ -745,16 +734,30 @@ public class TransferServer
 
     // ── 허용 목록 확인 ───────────────────────────────────────────────────
 
-    /// <summary>원격 IP 가 등록된 peer 인지 확인한다.
-    /// IP 문자열은 즉시 비교하고, 이름으로 등록된 peer 만 DNS 로 조회한다(전체 2초 제한).</summary>
-    private async Task<bool> IsRegisteredAsync(AppSettings settings, IPAddress remote)
+    /// <summary>보낸 장치 ID와 일치하는 인증된 행이 있으면 그 행의 저장 주소(IP 또는 이름)와 묶어 확인한다.
+    /// 일치하는 행이 없으면(이름으로 등록했거나 아직 인증되지 않은 행) 장치 ID 없는 행의 주소로 확인한다.
+    /// 평문 연결은 기존처럼 모든 행의 주소로 확인한다.</summary>
+    private async Task<bool> IsRegisteredSenderAsync(AppSettings settings, TransferHeader header, KeyMaterial? key, IPAddress remote)
     {
-        List<PeerInfo> peers = (_peerRegistry ?? new PeerRegistry(settings)).Snapshot().ToList();
+        var peers = (_peerRegistry ?? new PeerRegistry(settings)).Snapshot();
+        if (key == null || string.IsNullOrWhiteSpace(header.SenderDeviceId))
+            return await IsRegisteredAsync(peers.Select(p => p.Host), remote);
+        var matches = peers.Where(p => string.Equals(p.DeviceId?.Trim(), header.SenderDeviceId.Trim(), StringComparison.OrdinalIgnoreCase)).ToList();
+        if (matches.Count > 1) return false;
+        IEnumerable<string?> hosts = matches.Count == 1
+            ? new[] { matches[0].Host }
+            : peers.Where(p => string.IsNullOrWhiteSpace(p.DeviceId)).Select(p => p.Host);
+        return await IsRegisteredAsync(hosts, remote);
+    }
 
+    /// <summary>원격 IP 가 주소 목록에 있는지 확인한다.
+    /// IP 문자열은 즉시 비교하고, 이름으로 등록된 주소만 DNS 로 조회한다(전체 2초 제한).</summary>
+    private static async Task<bool> IsRegisteredAsync(IEnumerable<string?> hosts, IPAddress remote)
+    {
         var names = new List<string>();
-        foreach (var peer in peers)
+        foreach (var raw in hosts)
         {
-            string host = (peer.Host ?? "").Trim();
+            string host = (raw ?? "").Trim();
             if (host.Length == 0) continue;
 
             if (IPAddress.TryParse(host, out var parsed))

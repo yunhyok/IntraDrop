@@ -71,7 +71,7 @@ internal static class ClipboardReader
             using var process = Process.GetProcessById((int)processId);
             return string.Equals(process.ProcessName, "EXCEL", StringComparison.OrdinalIgnoreCase);
         }
-        catch (ArgumentException) { return false; } // The clipboard owner just exited.
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return false; } // The owner just exited.
     }
 
     public static bool HasReceivedClipboardFromCurrentProcess()
