@@ -71,8 +71,8 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     public void ApplyReceived(ClipboardContent content)
     {
         uint sequence = GetClipboardSequenceNumber();
-        if (_capturing || _applying || sequence != _sequence || ClipboardReader.HasLocalExcelCopy())
-            throw new InvalidOperationException("현재 컴퓨터의 복사·잘라내기를 보호하기 위해 수신 클립보드를 적용하지 않았습니다. Excel 복사·잘라내기를 끝낸 뒤 다시 복사해 보내세요.");
+        if (_capturing || _applying || sequence != _sequence || ClipboardReader.ShouldProtectLocalClipboard())
+            throw new InvalidOperationException("현재 컴퓨터의 Excel 메뉴·입력·복사 작업을 보호하기 위해 수신 클립보드를 적용하지 않았습니다. 작업을 마친 뒤 다시 복사해 보내세요.");
         _timer.Stop();
         _applying = true;
         bool applied = false;
@@ -81,7 +81,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
             // OleSetClipboard may succeed before OleFlushClipboard needs a retry.
             ClipboardService.Apply(content, () =>
                 (GetClipboardSequenceNumber() == sequence || ClipboardReader.HasReceivedClipboardFromCurrentProcess()) &&
-                !ClipboardReader.HasLocalExcelCopy());
+                !ClipboardReader.ShouldProtectLocalClipboard());
             applied = true;
         }
         finally

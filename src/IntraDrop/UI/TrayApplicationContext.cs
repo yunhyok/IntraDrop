@@ -197,7 +197,7 @@ public class TrayApplicationContext : ApplicationContext
                 try
                 {
                     if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
-                    else ClipboardService.Apply(content, () => !ClipboardReader.HasLocalExcelCopy());
+                    else ClipboardService.Apply(content, () => !ClipboardReader.ShouldProtectLocalClipboard());
                     _clipboardBroadcaster.ClearPending();
                     completion.TrySetResult(true);
                 }

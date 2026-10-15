@@ -93,12 +93,12 @@
 <tbody>
 <tr>
 <td>Windows 10 / 11 (64비트)</td>
-<td><code>IntraDrop-Setup-1.9.3.exe</code></td>
+<td><code>IntraDrop-Setup-1.9.4.exe</code></td>
 <td>.NET 런타임 포함, 별도 설치 불필요</td>
 </tr>
 <tr>
 <td>Windows 7 SP1 / 8 / 8.1 (32/64비트)</td>
-<td><code>IntraDrop-Setup-1.9.3-win7.exe</code></td>
+<td><code>IntraDrop-Setup-1.9.4-win7.exe</code></td>
 <td><a href="https://dotnet.microsoft.com/download/dotnet-framework/net48">.NET Framework 4.8</a> 필요 (없으면 설치 시 안내)</td>
 </tr>
 </tbody>
@@ -157,7 +157,7 @@
 </ol>
 <p>꺼진 컴퓨터 때문에 다른 컴퓨터의 전송이 지연되지 않습니다. 전송 중 연속 복사하면 컴퓨터별 대기 내용은 가장 최근 복사로 교체됩니다. 연결되지 않은 컴퓨터에는 다음에 새로 복사할 때 다시 전송합니다. 앱 시작 전에 있던 클립보드는 자동 전송하지 않으며, 빈 클립보드와 지원하지 않는 형식은 건너뜁니다.</p>
 <p>파일·폴더를 복사하거나 잘라내면 로컬 클립보드와 원본 파일을 그대로 유지하며, 자동 전송을 시작하지 않습니다. 다른 컴퓨터로 보내려면 탐색기에서 <strong>보내기 → IntraDrop - 대상 컴퓨터</strong>를 선택하거나 컴퓨터 목록에서 대상을 열어 파일을 끌어다 놓으세요.</p>
-<p>v1.9.3부터 자동 텍스트 읽기는 Excel의 OLE 데이터 객체를 조회하지 않고 Windows의 표준 텍스트 형식으로 읽습니다. <strong>Excel이 로컬 복사·잘라내기 내용을 보유한 동안에는 다른 컴퓨터에서 받은 클립보드로 덮어쓰지 않습니다.</strong> Excel의 복사·잘라내기를 끝내거나 <code>Esc</code>로 취소한 뒤, 보내는 컴퓨터에서 다시 복사하면 수신할 수 있습니다. Excel 버전에 따라 내용이 계속 남으면 다른 앱에서 한 번 복사해 로컬 Excel 클립보드를 교체하세요. 보내지 못한 수신 내용을 나중에 자동 적용하지 않습니다. 이 보호는 Excel에서 복사한 텍스트를 다른 컴퓨터로 보내는 동작에는 영향을 주지 않습니다. 아직 읽지 못한 새 로컬 복사와 클립보드 쓰기 재시도 중 발생한 새 복사도 우선 보호합니다.</p>
+<p>v1.9.4에서는 <strong>Excel의 메뉴·대화상자가 열려 있거나 셀을 편집 중이거나 복사·잘라내기 단축키를 누르는 동안</strong> 다른 컴퓨터에서 받은 클립보드를 적용하지 않습니다. 이때 Excel이 현재 클립보드 내용을 직접 보유하지 않아도 화면과 입력을 보호합니다. 기존처럼 Excel의 로컬 복사·잘라내기 내용도 덮어쓰지 않습니다. 로컬 복사·잘라내기가 남아 있지 않고 Excel이 대기 중이면 다른 컴퓨터의 내용을 정상적으로 받으며, 자동 공유 전체가 꺼지거나 파일이 자동 전송되는 일은 없습니다. 보호 중인 수신은 오류 풍선을 띄우거나 나중에 적용하지 않습니다. 메뉴·대화상자를 닫거나 입력을 끝낸 뒤 보내는 컴퓨터에서 다시 복사하세요.</p>
 <p>기존 공유 암호·수신 허용 목록·대용량 수락 확인을 적용합니다. 전체 데이터 검증과 수신 클립보드 등록이 모두 끝난 뒤 전송을 완료하며, 실제 붙여넣기 여부를 확인하거나 기다리지 않습니다. 붙여넣지 않고 시간이 지나도 재전송하거나 오류를 발생시키지 않습니다. 클립보드가 다른 앱에 잠겨 있으면 잠시 재시도합니다. v1.9.2부터 자동 공유 실패는 양쪽 PC의 트레이 메뉴 상태와 툴팁에서만 확인하며 팝업 알림은 띄우지 않습니다. 이 동작을 적용하려면 보내는 PC와 받는 PC 모두 업데이트하세요. 직접 지정한 파일 전송의 오류 알림은 유지하며, 클립보드 적용에 실패해도 이미 받은 파일은 다운로드 폴더에 보존됩니다. 공유 암호를 사용하는 클립보드 전송은 송신자가 매번 생성한 난수와 일치하는 인증된 완료 응답을 확인해 이전 완료 응답의 재사용도 거부합니다.</p>
 <p>호환성 근거: Microsoft의 <a href="https://learn.microsoft.com/en-us/windows/win32/shell/clipboard">클립보드 형식과 Shell 파일 객체</a>, <a href="https://learn.microsoft.com/en-us/dotnet/desktop/winforms/advanced/how-to-add-data-to-the-clipboard">Windows Forms 클립보드 데이터 추가</a>, <a href="https://learn.microsoft.com/en-us/dotnet/api/system.windows.forms.clipboard.setdataobject?view=netframework-4.8.1">STA·지속 저장·재시도 API</a>. 임의 객체를 직렬화해 네트워크에서 복원하지 않습니다.</p>
 <h2 id="section-5">직접 빌드하기</h2>
