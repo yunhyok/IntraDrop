@@ -46,7 +46,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/test-watch-clipboard.p
 git diff --check
 ```
 
-Windows PowerShell에서 메타데이터 스냅샷 생성·로그 저장 검사와 실제 Excel 메뉴 열림/닫힘 관찰을 통과했다. 제품 소스를 바꾸지 않았으므로 전체 제품 테스트·새 설치 파일 빌드는 수행하지 않았다.
+초기 진단 단계에서는 Windows PowerShell의 메타데이터 스냅샷 생성·로그 저장 검사와 실제 Excel 메뉴 열림/닫힘 관찰을 통과했다. 이 단계에서는 전체 제품 테스트·새 설치 파일 빌드를 수행하지 않았으며, 이후의 릴리스 검증은 아래 최종 점검에 별도로 기록했다.
 
 ## 다음에 필요한 증거
 
