@@ -41,7 +41,8 @@ internal static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
 
-        Application.Run(new TrayApplicationContext());
+        using var context = new TrayApplicationContext();
+        Application.Run(context);
         GC.KeepAlive(mutex);
     }
 
