@@ -12,6 +12,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     private readonly Func<bool> _deferCapture;
     private uint _sequence;
     private int _attempts;
+    private int _resetVersion;
     private bool _applying;
     private bool _capturing;
     private bool _disposed;
@@ -53,6 +54,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         // Office 가 메뉴·편집·드래그·키 조작 중이면 클립보드를 열지 않는다. 열면 Excel 의 지연 렌더가 팝업을 닫고,
         // 그동안 클립보드를 쥐고 있어 Excel 의 다음 복사가 실패한다. 조작이 끝난 뒤 한 번만 읽는다.
         if (_deferCapture()) { _timer.Start(); return; }
+        int resetVersion = _resetVersion;
         ClipboardContent? content = null;
         try
         {
@@ -61,16 +63,46 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         }
         catch (ExternalException ex)
         {
+            if (resetVersion != _resetVersion) return;
             if (++_attempts < 10) { _timer.Start(); return; }
             _failed(ex);
         }
         catch (InvalidOperationException) { } // Empty or unsupported clipboard formats.
-        catch (Exception ex) { _failed(ex); }
-        finally { _capturing = false; }
+        catch (Exception ex) { if (resetVersion == _resetVersion) _failed(ex); }
+        finally
+        {
+            _capturing = false;
+            if (resetVersion != _resetVersion && !_disposed && GetClipboardSequenceNumber() != _sequence)
+                _timer.Start(); // A new copy may have arrived while the old capture was unwinding.
+        }
+        if (resetVersion != _resetVersion) return;
         uint afterCapture = GetClipboardSequenceNumber();
         if (afterCapture != sequence) { _timer.Start(); return; }
         _sequence = afterCapture;
         if (content != null) _copied(content);
+    }
+
+    public void Clear()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(ClipboardMonitor));
+        if (_applying) throw new InvalidOperationException("클립보드를 적용 중입니다. 잠시 후 다시 초기화하세요.");
+        // A clipboard API may pump messages and leave an older capture frame on the stack.
+        _resetVersion++;
+        _timer.Stop();
+        _applying = true;
+        bool cleared = false;
+        try
+        {
+            Clipboard.Clear();
+            _sequence = GetClipboardSequenceNumber();
+            _attempts = 0;
+            cleared = true;
+        }
+        finally
+        {
+            _applying = false;
+            if (!cleared) _timer.Start();
+        }
     }
 
     public void ApplyReceived(ClipboardContent content)
