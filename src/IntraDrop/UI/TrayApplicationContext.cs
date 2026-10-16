@@ -16,6 +16,8 @@ public class TrayApplicationContext : ApplicationContext
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ClipboardBroadcaster _clipboardBroadcaster;
     private ClipboardMonitor? _clipboardMonitor;
+    private int _clipboardResetVersion;
+    private bool _updatingClipboard;
 #if NETFRAMEWORK
     private ScreenCaptureService? _screenCapture;
 #endif
@@ -162,6 +164,10 @@ public class TrayApplicationContext : ApplicationContext
             ToolTipText = "텍스트·이미지만 자동 공유합니다. 파일·폴더는 보낼 컴퓨터를 지정하세요.",
         };
         menu.Items.Add(_clipboardStatus);
+        menu.Items.Add(new ToolStripMenuItem("클립보드 초기화(&C)", null, (_, _) => ClearClipboard())
+        {
+            ToolTipText = "이 PC의 현재 클립보드를 비웁니다. 다음 복사부터 자동 공유를 계속합니다.",
+        });
         menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
         menu.Items.Add("다운로드 폴더 열기(&D)", null, (_, _) => OpenDownloadFolder());
         menu.Items.Add(new ToolStripSeparator());
@@ -203,8 +209,37 @@ public class TrayApplicationContext : ApplicationContext
         _clipboardStatus.ToolTipText = reason;
     }
 
+    private void ClearClipboard()
+    {
+        if (_lifetime.IsCancellationRequested) return;
+        try
+        {
+            if (_updatingClipboard)
+                throw new InvalidOperationException("클립보드를 처리 중입니다. 잠시 후 다시 초기화하세요.");
+            _updatingClipboard = true;
+            try
+            {
+                Interlocked.Increment(ref _clipboardResetVersion);
+                _clipboardBroadcaster.ClearPending();
+                if (_clipboardMonitor != null) _clipboardMonitor.Clear();
+                else Clipboard.Clear();
+                _clipboardStatus.Text = "클립보드 초기화 완료";
+                _clipboardStatus.ToolTipText = "이 PC의 클립보드를 비웠습니다. 다음 복사부터 자동 공유를 계속합니다.";
+            }
+            finally { _updatingClipboard = false; }
+        }
+        catch (Exception ex)
+        {
+            _clipboardStatus.Text = "클립보드 초기화 실패";
+            _clipboardStatus.ToolTipText = ex.Message;
+            _tray.ShowBalloonTip(5000, "클립보드 초기화 실패",
+                "클립보드를 사용 중인 앱을 확인한 뒤 다시 시도하세요.\n" + ex.Message, ToolTipIcon.Warning);
+        }
+    }
+
     private async Task OnClipboardReceivedAsync(string sender, ClipboardContent content)
     {
+        int resetVersion = Volatile.Read(ref _clipboardResetVersion);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using (_lifetime.Token.Register(() => completion.TrySetCanceled()))
         {
@@ -213,9 +248,16 @@ public class TrayApplicationContext : ApplicationContext
                 if (_lifetime.IsCancellationRequested) { completion.TrySetCanceled(); return; }
                 try
                 {
-                    if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
-                    else ClipboardService.Apply(content, () => !ClipboardReader.ShouldProtectLocalClipboard());
-                    _clipboardBroadcaster.ClearPending();
+                    if (resetVersion != Volatile.Read(ref _clipboardResetVersion) || _updatingClipboard)
+                        throw new InvalidOperationException("클립보드를 초기화했거나 처리 중이므로 이전 수신 내용을 적용하지 않았습니다. 다시 복사해 보내세요.");
+                    _updatingClipboard = true;
+                    try
+                    {
+                        if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
+                        else ClipboardService.Apply(content, () => !ClipboardReader.ShouldProtectLocalClipboard());
+                        _clipboardBroadcaster.ClearPending();
+                    }
+                    finally { _updatingClipboard = false; }
                     completion.TrySetResult(true);
                 }
                 catch (Exception ex)

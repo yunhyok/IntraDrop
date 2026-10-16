@@ -172,6 +172,129 @@ public sealed class ClipboardUiTests
 
     [Fact]
     [Trait("Category", "InteractiveShell")]
+    public Task ClearClipboardMenuEmptiesFormatsCancelsDeferredCaptureAndResumesSharing() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        string folder = Directory.CreateTempSubdirectory("IntraDrop-clear-clipboard-").FullName;
+        string file = Path.Combine(folder, "keep.txt");
+        File.WriteAllText(file, "keep source file");
+        try
+        {
+            Clipboard.Clear();
+            bool busy = true;
+            var copies = new List<ClipboardContent>();
+            var errors = new List<Exception>();
+            using var monitor = new ClipboardMonitor(copies.Add, errors.Add, () => busy);
+            using var lifetime = new CancellationTokenSource();
+            using var broadcaster = new ClipboardBroadcaster((_, _, _) => Task.CompletedTask, (_, _) => { });
+            var context = (TrayApplicationContext)RuntimeHelpers.GetUninitializedObject(typeof(TrayApplicationContext));
+            foreach (var pair in new Dictionary<string, object>
+            {
+                ["_settings"] = new AppSettings(), ["_lifetime"] = lifetime,
+                ["_clipboardMonitor"] = monitor, ["_clipboardBroadcaster"] = broadcaster,
+            })
+                typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+            using var menu = (ContextMenuStrip)typeof(TrayApplicationContext).GetMethod("BuildMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, null)!;
+            var clear = menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "클립보드 초기화(&C)");
+            var status = menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "클립보드 자동 공유 중");
+
+            using var bitmap = new Bitmap(8, 8);
+            foreach (string format in new[] { "text", "image", "cut files" })
+            {
+                busy = true;
+                if (format == "text") Clipboard.SetText("deferred copy must be discarded");
+                else if (format == "image") Clipboard.SetImage(bitmap);
+                else
+                {
+                    var data = new DataObject();
+                    data.SetFileDropList(new System.Collections.Specialized.StringCollection { file, folder });
+                    data.SetText("cut file preview");
+                    using var effect = new MemoryStream(new byte[] { 2, 0, 0, 0 });
+                    data.SetData("Preferred DropEffect", effect);
+                    Clipboard.SetDataObject(data, true);
+                }
+                PumpFor(300);
+                Assert.Empty(copies);
+                // No NotifyIcon is provided: successful manual reset must not display a balloon.
+                clear.PerformClick();
+                Assert.Empty(Clipboard.GetDataObject()?.GetFormats() ?? Array.Empty<string>());
+                Assert.Equal("클립보드 초기화 완료", status.Text);
+                Assert.Equal("keep source file", File.ReadAllText(file));
+                Assert.True(Directory.Exists(folder));
+                busy = false;
+                PumpFor(300);
+                Assert.Empty(copies);
+            }
+
+            Clipboard.SetText("fresh copy after reset");
+            PumpUntil(() => copies.Count == 1);
+            Assert.Equal("fresh copy after reset", Encoding.UTF8.GetString(copies[0].Data));
+            Clipboard.SetImage(bitmap);
+            PumpUntil(() => copies.Count == 2);
+            Assert.Equal(new[] { "text", "png" }, copies.Select(content => content.Format));
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+            Directory.Delete(folder, true);
+        }
+    });
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    [Trait("Category", "InteractiveShell")]
+    public Task ClearClipboardMenuRejectsAlreadyQueuedReceiveAndAllowsNewReceive(bool withMonitor) => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            Clipboard.Clear();
+            var copies = new List<ClipboardContent>();
+            var errors = new List<Exception>();
+            using var monitor = new ClipboardMonitor(copies.Add, errors.Add, () => false);
+            using var lifetime = new CancellationTokenSource();
+            using var broadcaster = new ClipboardBroadcaster((_, _, _) => Task.CompletedTask, (_, _) => { });
+            var sync = new QueuedSynchronizationContext();
+            var context = (TrayApplicationContext)RuntimeHelpers.GetUninitializedObject(typeof(TrayApplicationContext));
+            foreach (var pair in new Dictionary<string, object>
+            {
+                ["_settings"] = new AppSettings(), ["_lifetime"] = lifetime, ["_sync"] = sync,
+                ["_clipboardBroadcaster"] = broadcaster,
+            })
+                typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+            if (withMonitor)
+                typeof(TrayApplicationContext).GetField("_clipboardMonitor", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, monitor);
+            using var menu = (ContextMenuStrip)typeof(TrayApplicationContext).GetMethod("BuildMenu", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(context, null)!;
+            var receive = typeof(TrayApplicationContext).GetMethod("OnClipboardReceivedAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var stale = (Task)receive.Invoke(context, new object[] { "peer", new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("stale receive") } })!;
+            Assert.False(stale.IsCompleted);
+
+            menu.Items.OfType<ToolStripMenuItem>().Single(item => item.Text == "클립보드 초기화(&C)").PerformClick();
+            var fresh = (Task)receive.Invoke(context, new object[] { "peer", new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("fresh receive") } })!;
+            sync.RunNext();
+            PumpUntil(() => stale.IsCompleted);
+            Assert.Throws<InvalidOperationException>(() => stale.GetAwaiter().GetResult());
+            Assert.Empty(Clipboard.GetDataObject()?.GetFormats() ?? Array.Empty<string>());
+            Assert.False(fresh.IsCompleted);
+
+            sync.RunNext();
+            PumpUntil(() => fresh.IsCompleted);
+            fresh.GetAwaiter().GetResult();
+            Assert.Equal("fresh receive", Clipboard.GetText());
+            PumpFor(300);
+            Assert.Empty(copies);
+            Assert.Empty(errors);
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
     public Task NativeReaderPreservesUnicodeAndSkipsShellFileFallbacks() => OnSta(() =>
     {
         var original = Clipboard.GetDataObject();
@@ -332,6 +455,19 @@ public sealed class ClipboardUiTests
             Directory.Delete(folder, true);
         }
     });
+
+    private sealed class QueuedSynchronizationContext : SynchronizationContext
+    {
+        private readonly Queue<(SendOrPostCallback Callback, object? State)> _queue = new();
+
+        public override void Post(SendOrPostCallback callback, object? state) => _queue.Enqueue((callback, state));
+
+        public void RunNext()
+        {
+            var (callback, state) = _queue.Dequeue();
+            callback(state);
+        }
+    }
 
     private static void PumpUntil(Func<bool> completed)
     {
