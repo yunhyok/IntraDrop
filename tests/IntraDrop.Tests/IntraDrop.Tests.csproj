@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Fixtures\*.cs" />
+    <!-- Exercise the Win7 overlay without shipping it in the net8 application. -->
+    <Compile Include="..\..\src\IntraDrop\UI\Windows7\*.cs" Link="Windows7\%(Filename)%(Extension)" />
     <None Include="Fixtures\*.cs" CopyToOutputDirectory="PreserveNewest" />
     <ProjectReference Include="..\..\src\IntraDrop\IntraDrop.csproj" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />

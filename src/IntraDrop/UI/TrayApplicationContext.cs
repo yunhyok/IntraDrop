@@ -16,6 +16,9 @@ public class TrayApplicationContext : ApplicationContext
     private readonly CancellationTokenSource _lifetime = new();
     private readonly ClipboardBroadcaster _clipboardBroadcaster;
     private ClipboardMonitor? _clipboardMonitor;
+#if NETFRAMEWORK
+    private ScreenCaptureService? _screenCapture;
+#endif
     private ToolStripMenuItem _clipboardStatus = null!;
 
     private AppSettings _settings;
@@ -56,6 +59,20 @@ public class TrayApplicationContext : ApplicationContext
         {
             if (_tray.BalloonTipTitle == "파일 수신 완료") OpenDownloadFolder();
         };
+#if NETFRAMEWORK
+        if (ScreenCaptureService.Supports(Environment.OSVersion))
+        {
+            try
+            {
+                _screenCapture = new ScreenCaptureService((title, message, icon) =>
+                    _tray.ShowBalloonTip(5000, title, message, icon));
+            }
+            catch (Exception ex)
+            {
+                _tray.ShowBalloonTip(7000, "화면 캡처 단축키 등록 실패", ex.Message, ToolTipIcon.Warning);
+            }
+        }
+#endif
 
         _server.GetSettings = () => _settings;
         _server.PeerRegistry = _peerRegistry;
@@ -399,6 +416,9 @@ public class TrayApplicationContext : ApplicationContext
     private void ExitApp()
     {
         _lifetime.Cancel();
+#if NETFRAMEWORK
+        _screenCapture?.Dispose();
+#endif
         _clipboardMonitor?.Dispose();
         _clipboardBroadcaster.Dispose();
         _tray.Visible = false;
@@ -417,6 +437,9 @@ public class TrayApplicationContext : ApplicationContext
         if (disposing)
         {
             _lifetime.Cancel();
+#if NETFRAMEWORK
+            _screenCapture?.Dispose();
+#endif
             _clipboardMonitor?.Dispose();
             _clipboardBroadcaster.Dispose();
             _discovery.Stop();
