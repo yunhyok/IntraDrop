@@ -146,6 +146,46 @@ public sealed class ClipboardUiTests
         }
     });
 
+    // Another sync path (RDP, cloud clipboard, a self-registered peer) can hand an applied clipboard straight back.
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task EchoedClipboardIsNeitherRewrittenNorBroadcastAgain() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            Clipboard.Clear();
+            var copies = new List<ClipboardContent>();
+            using var monitor = new ClipboardMonitor(copies.Add, error => throw error);
+            var remote = new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("echoed remote copy") };
+            monitor.ApplyReceived(remote);
+            PumpFor(300);
+            Assert.Empty(copies);
+
+            Clipboard.SetText("echoed remote copy"); // echo: same text, no marker, new sequence
+            PumpFor(600);
+            Assert.Empty(copies);
+            Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
+            monitor.ApplyReceived(new ClipboardContent { Format = "text", Data = remote.Data.ToArray() });
+            Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess()); // not rewritten
+            Assert.Equal("echoed remote copy", Clipboard.GetText());
+
+            Clipboard.SetText("new local copy");
+            PumpUntil(() => copies.Count == 1);
+            Clipboard.SetText("new local copy"); // a deliberate re-copy of sent content still goes out
+            PumpUntil(() => copies.Count == 2);
+            monitor.ApplyReceived(new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("new local copy") });
+            Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
+            monitor.ApplyReceived(remote);
+            Assert.True(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
+            Assert.Equal("echoed remote copy", Clipboard.GetText());
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
     [Fact]
     [Trait("Category", "InteractiveShell")]
     public Task CaptureWaitsWhileLocalInteractionDefersIt() => OnSta(() =>
