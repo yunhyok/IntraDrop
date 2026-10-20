@@ -18,6 +18,7 @@ public class TrayApplicationContext : ApplicationContext
     private ClipboardMonitor? _clipboardMonitor;
     private int _clipboardResetVersion;
     private bool _updatingClipboard;
+    private bool _echoWarned;
 #if NETFRAMEWORK
     private ScreenCaptureService? _screenCapture;
 #endif
@@ -55,7 +56,7 @@ public class TrayApplicationContext : ApplicationContext
             if (error != null && !_lifetime.IsCancellationRequested)
                 _sync.Post(_ => ReportClipboardFailure($"{peer.Nickname}: {error.Message}"), null);
         });
-        try { _clipboardMonitor = new ClipboardMonitor(BroadcastClipboard, ex => ReportClipboardFailure(ex.Message)); }
+        try { _clipboardMonitor = new ClipboardMonitor(BroadcastClipboard, ex => ReportClipboardFailure(ex.Message), echoed: ReportClipboardEcho); }
         catch (Exception ex) { ReportClipboardFailure("클립보드 감시를 시작하지 못했습니다. " + ex.Message); }
         _tray.DoubleClick += (_, _) => ShowPeerList();
         _tray.BalloonTipClicked += (_, _) =>
@@ -206,6 +207,18 @@ public class TrayApplicationContext : ApplicationContext
             throw new InvalidOperationException("저장된 공유 암호를 읽을 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
         return TransferClient.SendClipboardAsync(peer.Host, _settings.Port, _settings.DeviceName, content,
             secret.Secret ?? "", null, token, _settings.DeviceId, peer.DeviceId);
+    }
+
+    private void ReportClipboardEcho(string process)
+    {
+        if (_lifetime.IsCancellationRequested) return;
+        string advice = $"다른 프로그램 {process}가 방금 보낸 내용을 이 PC의 클립보드에 다시 썼습니다. 이 때문에 Excel 복사가 풀리고 열린 메뉴가 닫힙니다. " +
+                        "VNC·원격 데스크톱·클립보드 동기화 프로그램의 클립보드 공유를 끄세요.";
+        _clipboardStatus.Text = "클립보드 자동 공유 (되돌이 감지)";
+        _clipboardStatus.ToolTipText = advice;
+        if (_echoWarned) return;
+        _echoWarned = true;
+        _tray.ShowBalloonTip(10000, "클립보드 되돌이 감지", advice, ToolTipIcon.Warning);
     }
 
     private void ReportClipboardFailure(string reason)

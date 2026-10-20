@@ -80,7 +80,9 @@ public sealed class ExcelClipboardTests
             excel.Quit();
             foreach (object? value in new object?[] { destination, source, sheet, book, excel })
                 if (value != null) Marshal.FinalReleaseComObject(value);
-            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+            // Restoring is a courtesy: the previous owner may have exited and can no longer render its formats.
+            try { if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear(); }
+            catch (ExternalException) { Clipboard.Clear(); }
         }
     }
 
@@ -146,7 +148,9 @@ public sealed class ExcelClipboardTests
             try { excel.CutCopyMode = false; if (book != null) book.Close(false); excel.Quit(); } catch { }
             foreach (object? value in new object?[] { source, sheet, book, excel })
                 if (value != null) Marshal.FinalReleaseComObject(value);
-            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+            // Restoring is a courtesy: the previous owner may have exited and can no longer render its formats.
+            try { if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear(); }
+            catch (ExternalException) { Clipboard.Clear(); }
         }
     }
 
