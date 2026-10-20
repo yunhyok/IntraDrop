@@ -13,6 +13,10 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     private uint _sequence;
     private int _attempts;
     private int _resetVersion;
+    // What the clipboard held at _sequence when this monitor last read or wrote it, and what it last wrote.
+    // A clipboard that another sync path (RDP, cloud clipboard, a self-registered peer) hands straight back must
+    // not be written or broadcast again: each rewrite takes ownership from Excel and closes open Office menus.
+    private ClipboardContent? _known, _lastApplied;
     private bool _applying;
     private bool _capturing;
     private bool _disposed;
@@ -79,7 +83,8 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         uint afterCapture = GetClipboardSequenceNumber();
         if (afterCapture != sequence) { _timer.Start(); return; }
         _sequence = afterCapture;
-        if (content != null) _copied(content);
+        _known = content;
+        if (content != null && !content.ContentEquals(_lastApplied)) _copied(content);
     }
 
     public void Clear()
@@ -95,6 +100,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         {
             Clipboard.Clear();
             _sequence = GetClipboardSequenceNumber();
+            _known = _lastApplied = null;
             _attempts = 0;
             cleared = true;
         }
@@ -110,8 +116,10 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         uint sequence = GetClipboardSequenceNumber();
         if (_capturing || _applying || sequence != _sequence || ClipboardReader.ShouldProtectLocalClipboard())
             throw new InvalidOperationException("현재 컴퓨터의 Excel 메뉴·입력·복사 작업을 보호하기 위해 수신 클립보드를 적용하지 않았습니다. 작업을 마친 뒤 다시 복사해 보내세요.");
+        if (content.ContentEquals(_known)) return; // Already on the clipboard: rewriting would only bounce it again.
         _timer.Stop();
         _applying = true;
+        _known = null;
         bool applied = false;
         try
         {
@@ -124,7 +132,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         finally
         {
             _applying = false;
-            if (applied) _sequence = GetClipboardSequenceNumber();
+            if (applied) { _sequence = GetClipboardSequenceNumber(); _known = _lastApplied = content; }
             else _timer.Start(); // A local copy during a failed write still needs capture.
         }
     }

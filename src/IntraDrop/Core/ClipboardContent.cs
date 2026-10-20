@@ -11,6 +11,10 @@ public sealed class ClipboardContent
     public byte[] Data { get; set; } = Array.Empty<byte>();
     public IReadOnlyList<string> Paths { get; set; } = Array.Empty<string>();
 
+    public bool ContentEquals(ClipboardContent? other) =>
+        other != null && Format == other.Format && Data.SequenceEqual(other.Data) &&
+        Paths.SequenceEqual(other.Paths, StringComparer.Ordinal);
+
     internal static void ValidateData(string format, byte[]? data)
     {
         if (data == null) throw new InvalidDataException("클립보드 데이터가 없습니다.");
