@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IntraDrop 1.10.3 도움말</title>
+  <title>IntraDrop 1.10.4 도움말</title>
   <style>
     * { box-sizing:border-box; }
     header, main, section, figure, footer { display:block; }
@@ -32,7 +32,7 @@
   </style>
 </head>
 <body>
-<header><div><h1>IntraDrop 1.10.3 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
+<header><div><h1>IntraDrop 1.10.4 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
 <main>
   <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#clipboard">클립보드 전달</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
 
@@ -69,8 +69,9 @@
     <p>파일·폴더의 <strong>Ctrl+C·Ctrl+X는 현재 컴퓨터에서만 동작</strong>하며 복사·잘라내기 상태를 그대로 유지합니다. 전송하려면 탐색기의 <strong>보내기 → IntraDrop - 대상 컴퓨터</strong>를 선택하거나 컴퓨터 목록에서 대상을 열어 파일을 끌어다 놓으세요. 큰 파일의 수락 절차는 기존과 같습니다.</p>
     <p>HTML·RTF 서식은 일반 텍스트로 전달합니다. 앱 전용 OLE 객체·가상 첨부 파일은 파일로 저장한 뒤 보낼 컴퓨터를 지정하세요. 파일 형식이 포함되면 텍스트나 미리보기도 자동 공유하지 않습니다. 연결점·심볼릭 링크는 실제 파일·폴더로 바꿔 선택하세요. 연속 복사 시 대기 내용은 최신 복사로 교체됩니다. 연결 실패 후에는 새로 복사할 때 다시 전송합니다. 앱 시작 전의 클립보드는 보내지 않습니다. 붙여넣기 여부는 확인하지 않으며, 붙여넣지 않고 기다려도 재전송하거나 오류를 발생시키지 않습니다. 자동 공유 실패는 트레이 메뉴 상태와 툴팁에만 표시하며 팝업 알림은 띄우지 않습니다. 보내는 PC와 받는 PC 모두 1.9.2 이상으로 업데이트하세요. 직접 지정한 파일 전송의 오류 알림은 유지합니다.</p>
     <p>v1.9.6에서는 <strong>복사한 컴퓨터 쪽</strong>도 보호합니다. Excel·Word·PowerPoint가 전면에서 메뉴·대화상자를 열었거나, 셀을 편집 중이거나, 마우스 버튼이나 Ctrl을 누르고 있는 동안에는 클립보드를 읽지 않고 조작이 끝난 뒤 한 번만 읽어 전달합니다. 이전에는 복사 직후 바로 읽어 Excel의 지연 렌더링을 강제했기 때문에 우클릭 메뉴가 닫히거나 연속 복사가 실패할 수 있었습니다.</p>
-    <p>v1.10.3에서는 <strong>되돌아온 클립보드를 다시 쓰거나 다시 보내지 않습니다.</strong> 받은 내용이 이미 현재 클립보드와 같으면 다시 쓰지 않고 완료로 처리하고, 직전에 받아 적용한 내용과 같은 복사는 다시 전송하지 않습니다. 원격 데스크톱 클립보드 공유, Windows 클립보드 동기화, 자기 자신이 등록된 컴퓨터 목록처럼 다른 경로로 같은 내용이 되돌아오면 이전에는 PC마다 클립보드를 반복해서 다시 써서 Excel의 복사 상태가 풀리고 우클릭 메뉴가 계속 닫혔습니다. 보내는 쪽에서 같은 내용을 다시 복사하면 이전처럼 다시 전송합니다.</p>
-    <p>v1.10.3에서는 <strong>진단 로그</strong>를 남깁니다. 트레이 아이콘 우클릭 → <strong>진단 로그 열기</strong>를 클릭하면 %APPDATA%\IntraDrop\clipboard.log를 탐색기에서 선택합니다. 클립보드가 바뀐 시각과 소유 프로세스, 전면 창과 Office 메뉴·마우스·Ctrl 조합 상태, 읽기 지연·캡처·전송·수신 적용·거부 판정을 기록하며 복사한 내용과 일반 문자 키는 기록하지 않습니다. 4MB를 넘으면 clipboard.log.1로 한 번 보관합니다. Excel 복사 취소나 메뉴 닫힘이 다시 나타나면 그 시각 전후의 owner=와 판정 줄을 확인하세요.</p>
+    <p>v1.10.4에서는 <strong>되돌아온 클립보드를 다시 쓰거나 다시 보내지 않습니다.</strong> 받은 내용이 이미 현재 클립보드와 같으면 다시 쓰지 않고 완료로 처리하고, 직전에 받아 적용한 내용과 같은 복사는 다시 전송하지 않습니다. 원격 데스크톱 클립보드 공유, Windows 클립보드 동기화, 자기 자신이 등록된 컴퓨터 목록처럼 다른 경로로 같은 내용이 되돌아오면 이전에는 PC마다 클립보드를 반복해서 다시 써서 Excel의 복사 상태가 풀리고 우클릭 메뉴가 계속 닫혔습니다. 보내는 쪽에서 같은 내용을 다시 복사하면 이전처럼 다시 전송합니다.</p>
+    <p>v1.10.4에서는 <strong>진단 로그</strong>를 남깁니다. 트레이 아이콘 우클릭 → <strong>진단 로그 열기</strong>를 클릭하면 %APPDATA%\IntraDrop\clipboard.log를 탐색기에서 선택합니다. 클립보드가 바뀐 시각과 소유 프로세스, 전면 창과 Office 메뉴·마우스·Ctrl 조합 상태, 읽기 지연·캡처·전송·수신 적용·거부 판정을 기록하며 복사한 내용과 일반 문자 키는 기록하지 않습니다. 4MB를 넘으면 clipboard.log.1로 한 번 보관합니다. Excel 복사 취소나 메뉴 닫힘이 다시 나타나면 그 시각 전후의 owner=와 판정 줄을 확인하세요.</p>
+    <p>v1.10.4에서는 <strong>되돌이를 감지</strong>합니다. 방금 보낸 내용과 같은 클립보드를 전면 앱이 아닌 다른 프로그램이 이 PC에 다시 쓰면 재전송하지 않고, 트레이 상태를 <strong>클립보드 자동 공유 (되돌이 감지)</strong>로 바꾸며 그 프로그램 이름을 알림으로 한 번 표시합니다. TightVNC·원격 데스크톱·클립보드 동기화 프로그램의 클립보드 공유가 켜져 있으면 IntraDrop이 상대 PC에 적용한 내용이 그 경로로 이 PC에 되돌아와 Excel의 복사 상태를 풀고 열린 메뉴를 닫습니다. IntraDrop이 클립보드를 공유하므로 그 프로그램의 클립보드 전송은 끄세요.</p>
   </section>
 
   <section id="settings"><h2>5. 설정과 보안</h2>
@@ -86,7 +87,7 @@
   <section id="trouble"><h2>6. 연결되지 않을 때</h2><ul>
     <li>양쪽 컴퓨터에서 IntraDrop이 실행 중인지 확인합니다.</li><li>등록 주소, 포트, 공유 암호가 서로 맞는지 확인합니다.</li><li>컴퓨터 목록의 <strong>새로고침</strong>을 누릅니다.</li><li>Windows 방화벽에서 IntraDrop의 개인 네트워크 통신이 허용됐는지 확인합니다.</li><li>VLAN, 게스트 Wi-Fi, Wi-Fi 클라이언트 격리 환경에서는 장치 간 통신이 차단될 수 있습니다.</li>
   </ul></section>
-  <footer>IntraDrop 1.10.3 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
+  <footer>IntraDrop 1.10.4 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
 </main>
 </body>
 </html>

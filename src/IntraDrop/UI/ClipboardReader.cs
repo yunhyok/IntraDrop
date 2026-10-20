@@ -96,6 +96,19 @@ internal static class ClipboardReader
         return processId == GetCurrentProcessId() && IsClipboardFormatAvailable(ReceivedClipboardFormat);
     }
 
+    /// <summary>클립보드 소유 프로세스가 전면 앱도 IntraDrop 도 아니면 true. 사용자의 복사는 전면 앱이 소유하고,
+    /// VNC·원격 데스크톱·동기화 프로그램의 되돌이는 백그라운드 프로세스가 소유한다.</summary>
+    public static bool OwnerIsBackgroundProcess()
+    {
+        IntPtr owner = GetClipboardOwner();
+        if (owner == IntPtr.Zero) return false;
+        GetWindowThreadProcessId(owner, out uint ownerProcessId);
+        GetWindowThreadProcessId(GetForegroundWindow(), out uint foregroundProcessId);
+        return ownerProcessId != foregroundProcessId && ownerProcessId != GetCurrentProcessId();
+    }
+
+    public static string OwnerProcess() => ProcessName(GetClipboardOwner());
+
     /// <summary>진단 로그용 상태. 클립보드를 열거나 내용을 읽지 않고, Ctrl 없는 일반 문자 키는 기록하지 않는다.</summary>
     public static string Describe()
     {

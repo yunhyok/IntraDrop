@@ -16,16 +16,19 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     // What the clipboard held at _sequence when this monitor last read or wrote it, and what it last wrote.
     // A clipboard that another sync path (RDP, cloud clipboard, a self-registered peer) hands straight back must
     // not be written or broadcast again: each rewrite takes ownership from Excel and closes open Office menus.
-    private ClipboardContent? _known, _lastApplied;
+    private ClipboardContent? _known, _lastApplied, _lastSent;
+    private readonly Action<string>? _echoed;
     private bool _applying;
     private bool _capturing;
     private bool _deferLogged;
     private bool _disposed;
 
-    public ClipboardMonitor(Action<ClipboardContent> copied, Action<Exception> failed, Func<bool>? deferCapture = null)
+    public ClipboardMonitor(Action<ClipboardContent> copied, Action<Exception> failed, Func<bool>? deferCapture = null,
+        Action<string>? echoed = null)
     {
         _copied = copied;
         _failed = failed;
+        _echoed = echoed;
         _deferCapture = deferCapture ?? (() => ClipboardReader.HasActiveOfficeInteraction(includeHeldInput: true));
         // Ignore the clipboard already present when the app starts.
         _sequence = GetClipboardSequenceNumber();
@@ -114,9 +117,17 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
             ClipboardLog.Write($"capture skipped seq={afterCapture}: {skipped ?? "files, received clipboard, or app-only formats"}");
         else if (content.ContentEquals(_lastApplied))
             ClipboardLog.Write($"capture is an echo of the last applied clipboard, not sent {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
+        else if (content.ContentEquals(_lastSent) && ClipboardReader.OwnerIsBackgroundProcess())
+        {
+            // A VNC/RDP clipboard bridge on a peer hands the copy we just sent straight back; a user's re-copy comes from the foreground app.
+            string owner = ClipboardReader.OwnerProcess();
+            ClipboardLog.Write($"capture is an echo of the last sent clipboard written back by {owner}, not sent {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
+            _echoed?.Invoke(owner);
+        }
         else
         {
             ClipboardLog.Write($"captured {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
+            _lastSent = content;
             _copied(content);
         }
     }
@@ -134,7 +145,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         {
             Clipboard.Clear();
             _sequence = GetClipboardSequenceNumber();
-            _known = _lastApplied = null;
+            _known = _lastApplied = _lastSent = null;
             _attempts = 0;
             _deferLogged = false;
             cleared = true;

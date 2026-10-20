@@ -186,6 +186,46 @@ public sealed class ClipboardUiTests
         }
     });
 
+    // A VNC or RDP clipboard bridge on a peer writes the copy we just sent back from a background process.
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task SentClipboardWrittenBackByABackgroundProcessIsNotSentAgain() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        System.Diagnostics.Process? writer = null;
+        try
+        {
+            Clipboard.Clear();
+            var copies = new List<ClipboardContent>();
+            var echoes = new List<string>();
+            using var monitor = new ClipboardMonitor(copies.Add, error => throw error, echoed: echoes.Add);
+            Clipboard.SetText("sent once");
+            PumpUntil(() => copies.Count == 1);
+
+            writer = StartBackgroundClipboardWriter("sent once"); // stays alive as the clipboard owner, like a VNC server
+            PumpUntil(() => echoes.Count == 1);
+            PumpFor(400);
+            Assert.Single(copies);
+            Assert.Contains("powershell", echoes[0], StringComparison.OrdinalIgnoreCase);
+            writer.Kill();
+
+            writer = StartBackgroundClipboardWriter("different text");
+            PumpUntil(() => copies.Count == 2);
+            Assert.Equal("different text", Encoding.UTF8.GetString(copies[1].Data));
+            Assert.Single(echoes);
+        }
+        finally
+        {
+            try { writer?.Kill(); } catch { }
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
+        }
+    });
+
+    private static System.Diagnostics.Process StartBackgroundClipboardWriter(string text) =>
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("powershell.exe",
+            $"-NoProfile -NonInteractive -Command \"Set-Clipboard -Value '{text}'; Start-Sleep -Seconds 30\"")
+        { UseShellExecute = false, CreateNoWindow = true })!;
+
     [Fact]
     [Trait("Category", "InteractiveShell")]
     public Task CaptureWaitsWhileLocalInteractionDefersIt() => OnSta(() =>
