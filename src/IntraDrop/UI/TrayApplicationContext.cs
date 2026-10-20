@@ -51,6 +51,7 @@ public class TrayApplicationContext : ApplicationContext
         };
         _clipboardBroadcaster = new ClipboardBroadcaster(SendClipboardToPeerAsync, (peer, error) =>
         {
+            ClipboardLog.Write(error == null ? $"sent to {peer.Nickname}" : $"send to {peer.Nickname} failed: {error.Message}");
             if (error != null && !_lifetime.IsCancellationRequested)
                 _sync.Post(_ => ReportClipboardFailure($"{peer.Nickname}: {error.Message}"), null);
         });
@@ -170,6 +171,10 @@ public class TrayApplicationContext : ApplicationContext
         });
         menu.Items.Add("설정(&S)...", null, (_, _) => ShowSettings());
         menu.Items.Add("다운로드 폴더 열기(&D)", null, (_, _) => OpenDownloadFolder());
+        menu.Items.Add(new ToolStripMenuItem("진단 로그 열기(&G)", null, (_, _) => OpenClipboardLog())
+        {
+            ToolTipText = "클립보드 공유 판정 기록(clipboard.log)을 탐색기에서 선택합니다. 복사한 내용은 기록하지 않습니다.",
+        });
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("도움말(&H)", null, (_, _) => OpenHelp());
         menu.Items.Add("IntraDrop 정보(&A)", null, (_, _) => ShowAbout());
@@ -184,6 +189,7 @@ public class TrayApplicationContext : ApplicationContext
             .Where(entry => !string.Equals(entry.DeviceId, _settings.DeviceId, StringComparison.OrdinalIgnoreCase))
             .Select(entry => new PeerInfo { Host = entry.Host, DeviceId = entry.DeviceId, Nickname = entry.Label })
             .ToArray();
+        ClipboardLog.Write($"broadcast {ClipboardLog.Summary(content)} peers={peers.Length}");
         _clipboardStatus.Text = peers.Length == 0 ? "클립보드 자동 공유 (등록된 컴퓨터 없음)" : "클립보드 자동 공유 중";
         _clipboardStatus.ToolTipText = $"등록된 컴퓨터 {peers.Length}대에 자동으로 전달합니다.";
         _clipboardBroadcaster.Publish(peers, content);
@@ -237,8 +243,19 @@ public class TrayApplicationContext : ApplicationContext
         }
     }
 
+    private void OpenClipboardLog()
+    {
+        try
+        {
+            ClipboardLog.Write("log opened from the tray menu");
+            Process.Start("explorer.exe", "/select,\"" + ClipboardLog.FilePath + "\"");
+        }
+        catch { }
+    }
+
     private async Task OnClipboardReceivedAsync(string sender, ClipboardContent content)
     {
+        ClipboardLog.Write($"receive from {sender} {ClipboardLog.Summary(content)}");
         int resetVersion = Volatile.Read(ref _clipboardResetVersion);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using (_lifetime.Token.Register(() => completion.TrySetCanceled()))
@@ -262,6 +279,7 @@ public class TrayApplicationContext : ApplicationContext
                 }
                 catch (Exception ex)
                 {
+                    ClipboardLog.Write($"receive from {sender} not applied: {ex.Message}");
                     string recovery = content.Format == "files"
                         ? "받은 파일은 다운로드 폴더에 보관했습니다. 클립보드를 사용 중인 앱을 확인하세요."
                         : "클립보드를 사용 중인 앱을 닫고 다시 전달하세요.";

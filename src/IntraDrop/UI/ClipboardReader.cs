@@ -96,6 +96,41 @@ internal static class ClipboardReader
         return processId == GetCurrentProcessId() && IsClipboardFormatAvailable(ReceivedClipboardFormat);
     }
 
+    /// <summary>진단 로그용 상태. 클립보드를 열거나 내용을 읽지 않고, Ctrl 없는 일반 문자 키는 기록하지 않는다.</summary>
+    public static string Describe()
+    {
+        IntPtr foreground = GetForegroundWindow();
+        string text = $"owner={ProcessName(GetClipboardOwner())} formats={CountClipboardFormats()} fg={ProcessName(foreground)}";
+        if (OfficeProcessName(foreground) == null) return text;
+        var info = new GuiThreadInfo { Size = Marshal.SizeOf(typeof(GuiThreadInfo)) };
+        text += GetGUIThreadInfo(GetWindowThreadProcessId(foreground, out _), ref info)
+            ? $" active={WindowClass(info.Active)} focus={WindowClass(info.Focus)} menu=0x{info.Flags & 0x1c:x} capture={info.Capture != IntPtr.Zero}"
+            : " gui=unavailable";
+        var held = new List<string>();
+        if (GetAsyncKeyState(0x11) < 0)
+        {
+            held.Add("Ctrl");
+            if (GetAsyncKeyState(0x43) < 0) held.Add("C");
+            if (GetAsyncKeyState(0x58) < 0) held.Add("X");
+            if (GetAsyncKeyState(0x56) < 0) held.Add("V");
+        }
+        if (GetAsyncKeyState(0x01) < 0) held.Add("LMouse");
+        if (GetAsyncKeyState(0x02) < 0) held.Add("RMouse");
+        return text + " held=" + (held.Count == 0 ? "-" : string.Join("+", held));
+    }
+
+    private static string ProcessName(IntPtr window)
+    {
+        if (window == IntPtr.Zero) return "none";
+        GetWindowThreadProcessId(window, out uint processId);
+        try
+        {
+            using var process = Process.GetProcessById((int)processId);
+            return $"{process.ProcessName}({processId})";
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException) { return "pid" + processId; }
+    }
+
     public static ClipboardContent? CaptureAutomatic()
     {
         bool bitmap = false;
