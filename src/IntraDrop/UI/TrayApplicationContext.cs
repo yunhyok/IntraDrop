@@ -17,6 +17,7 @@ public class TrayApplicationContext : ApplicationContext
     private readonly ClipboardBroadcaster _clipboardBroadcaster;
     private ClipboardMonitor? _clipboardMonitor;
     private int _clipboardResetVersion;
+    private int _clipboardReceiveVersion;
     private bool _updatingClipboard;
     private bool _echoWarned;
 #if NETFRAMEWORK
@@ -270,21 +271,30 @@ public class TrayApplicationContext : ApplicationContext
     {
         ClipboardLog.Write($"receive from {sender} {ClipboardLog.Summary(content)}");
         int resetVersion = Volatile.Read(ref _clipboardResetVersion);
+        int receiveVersion = Interlocked.Increment(ref _clipboardReceiveVersion);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using (_lifetime.Token.Register(() => completion.TrySetCanceled()))
         {
-            _sync.Post(_ =>
+            _sync.Post(async _ =>
             {
                 if (_lifetime.IsCancellationRequested) { completion.TrySetCanceled(); return; }
                 try
                 {
                     if (resetVersion != Volatile.Read(ref _clipboardResetVersion) || _updatingClipboard)
                         throw new InvalidOperationException("클립보드를 초기화했거나 처리 중이므로 이전 수신 내용을 적용하지 않았습니다. 다시 복사해 보내세요.");
+                    uint sequence = ClipboardReader.SequenceNumber;
+                    var excelState = await ExcelClipboardProbe.CheckAsync(_lifetime.Token);
+                    if (_lifetime.IsCancellationRequested) { completion.TrySetCanceled(); return; }
+                    if (resetVersion != Volatile.Read(ref _clipboardResetVersion) || _updatingClipboard ||
+                        receiveVersion != Volatile.Read(ref _clipboardReceiveVersion) || sequence != ClipboardReader.SequenceNumber)
+                        throw new InvalidOperationException("Excel 상태를 확인하는 동안 클립보드가 바뀌어 이전 수신 내용을 적용하지 않았습니다. 다시 복사해 보내세요.");
                     _updatingClipboard = true;
                     try
                     {
-                        if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content);
-                        else ClipboardService.Apply(content, () => !ClipboardReader.ShouldProtectLocalClipboard());
+                        if (_clipboardMonitor != null) _clipboardMonitor.ApplyReceived(content, excelState);
+                        else ClipboardService.Apply(content, () =>
+                            (sequence == ClipboardReader.SequenceNumber || ClipboardReader.HasReceivedClipboardFromCurrentProcess()) &&
+                            !ClipboardReader.ShouldProtectLocalClipboard(excelState));
                         _clipboardBroadcaster.ClearPending();
                     }
                     finally { _updatingClipboard = false; }

@@ -16,7 +16,8 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
     // What the clipboard held at _sequence when this monitor last read or wrote it, and what it last wrote.
     // A clipboard that another sync path (RDP, cloud clipboard, a self-registered peer) hands straight back must
     // not be written or broadcast again: each rewrite takes ownership from Excel and closes open Office menus.
-    private ClipboardContent? _known, _lastApplied, _lastSent;
+    private ClipboardContent? _known;
+    private readonly ClipboardEchoTracker _echo = new();
     private readonly Action<string>? _echoed;
     private bool _applying;
     private bool _capturing;
@@ -49,6 +50,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         if (message.Msg == 0x031D && !_disposed)
         {
             uint sequence = GetClipboardSequenceNumber();
+            ObserveCopy(sequence);
             ClipboardLog.Write($"update seq={sequence} own={sequence == _sequence} applying={_applying} {ClipboardReader.Describe()}");
             if (!_applying && sequence != _sequence)
             {
@@ -65,6 +67,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         _timer.Stop();
         uint sequence = GetClipboardSequenceNumber();
         if (_disposed || _applying || _capturing || sequence == _sequence) return;
+        ObserveCopy(sequence);
         // Office 가 메뉴·편집·드래그·키 조작 중이면 클립보드를 열지 않는다. 열면 Excel 의 지연 렌더가 팝업을 닫고,
         // 그동안 클립보드를 쥐고 있어 Excel 의 다음 복사가 실패한다. 조작이 끝난 뒤 한 번만 읽는다.
         if (_deferCapture())
@@ -105,7 +108,9 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         }
         if (resetVersion != _resetVersion) return;
         uint afterCapture = GetClipboardSequenceNumber();
-        if (afterCapture != sequence)
+        uint owner = ClipboardReader.OwnerProcessId();
+        bool background = ClipboardReader.OwnerIsBackgroundProcess();
+        if (afterCapture != sequence || GetClipboardSequenceNumber() != sequence)
         {
             ClipboardLog.Write($"capture: clipboard changed during read seq={sequence}->{afterCapture}, retry");
             _timer.Start();
@@ -113,23 +118,30 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         }
         _sequence = afterCapture;
         _known = content;
+        var echo = content == null ? ClipboardEcho.None : _echo.Classify(content, sequence, owner, background);
         if (content == null)
             ClipboardLog.Write($"capture skipped seq={afterCapture}: {skipped ?? "files, received clipboard, or app-only formats"}");
-        else if (content.ContentEquals(_lastApplied))
+        else if (echo == ClipboardEcho.Applied)
             ClipboardLog.Write($"capture is an echo of the last applied clipboard, not sent {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
-        else if (content.ContentEquals(_lastSent) && ClipboardReader.OwnerIsBackgroundProcess())
+        else if (echo == ClipboardEcho.Sent)
         {
-            // A VNC/RDP clipboard bridge on a peer hands the copy we just sent straight back; a user's re-copy comes from the foreground app.
-            string owner = ClipboardReader.OwnerProcess();
-            ClipboardLog.Write($"capture is an echo of the last sent clipboard written back by {owner}, not sent {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
-            _echoed?.Invoke(owner);
+            string process = ClipboardReader.OwnerProcess();
+            ClipboardLog.Write($"capture is an echo of the last sent clipboard written back by {process}, not sent {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
+            _echoed?.Invoke(process);
         }
         else
         {
             ClipboardLog.Write($"captured {ClipboardLog.Summary(content)} seq={afterCapture} {ClipboardReader.Describe()}");
-            _lastSent = content;
+            _echo.Sent(content);
             _copied(content);
         }
+    }
+
+    private void ObserveCopy(uint sequence)
+    {
+        uint owner = ClipboardReader.OwnerProcessId();
+        bool foreground = !ClipboardReader.OwnerIsBackgroundProcess();
+        if (sequence == GetClipboardSequenceNumber()) _echo.Observe(sequence, owner, foreground);
     }
 
     public void Clear()
@@ -145,7 +157,8 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         {
             Clipboard.Clear();
             _sequence = GetClipboardSequenceNumber();
-            _known = _lastApplied = _lastSent = null;
+            _known = null;
+            _echo.Clear();
             _attempts = 0;
             _deferLogged = false;
             cleared = true;
@@ -158,12 +171,12 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
         }
     }
 
-    public void ApplyReceived(ClipboardContent content)
+    public void ApplyReceived(ClipboardContent content, ExcelClipboardState? excelState = null)
     {
         uint sequence = GetClipboardSequenceNumber();
         string? refusal = _capturing ? "reading a local copy" : _applying ? "another apply in progress"
             : sequence != _sequence ? "local copy not captured yet"
-            : ClipboardReader.ShouldProtectLocalClipboard() ? "Office protection" : null;
+            : ClipboardReader.ShouldProtectLocalClipboard(excelState) ? "Office protection" : null;
         if (refusal != null)
         {
             ClipboardLog.Write($"receive refused ({refusal}) {ClipboardLog.Summary(content)} seq={sequence} {ClipboardReader.Describe()}");
@@ -184,7 +197,7 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
             // OleSetClipboard may succeed before OleFlushClipboard needs a retry.
             ClipboardService.Apply(content, () =>
                 (GetClipboardSequenceNumber() == sequence || ClipboardReader.HasReceivedClipboardFromCurrentProcess()) &&
-                !ClipboardReader.ShouldProtectLocalClipboard());
+                !ClipboardReader.ShouldProtectLocalClipboard(excelState));
             applied = true;
         }
         finally
@@ -193,7 +206,8 @@ internal sealed class ClipboardMonitor : NativeWindow, IDisposable
             if (applied)
             {
                 _sequence = GetClipboardSequenceNumber();
-                _known = _lastApplied = content;
+                _known = content;
+                _echo.Applied(content);
                 ClipboardLog.Write($"applied {ClipboardLog.Summary(content)} seq={_sequence}");
             }
             else
