@@ -41,7 +41,18 @@ internal static class ClipboardReader
         return OfficeProcessName(owner) == "EXCEL";
     }
 
-    public static bool ShouldProtectLocalClipboard() => HasLocalExcelCopy() || HasActiveOfficeInteraction();
+    public static uint SequenceNumber => GetClipboardSequenceNumber();
+    public static IntPtr OwnerWindow => GetClipboardOwner();
+
+    public static uint OwnerProcessId()
+    {
+        GetWindowThreadProcessId(GetClipboardOwner(), out uint processId);
+        return processId;
+    }
+
+    public static bool ShouldProtectLocalClipboard(ExcelClipboardState? state = null) =>
+        HasActiveOfficeInteraction() || (HasLocalExcelCopy() &&
+        !(state?.IsIdleFor(SequenceNumber, OwnerWindow, OwnerProcessId()) ?? false));
 
     /// <summary>전면의 Office 앱이 메뉴·대화상자·셀 편집·마우스 조작 중이면 true.
     /// 이때 클립보드를 열면 Excel 의 지연 렌더가 팝업을 닫고, 그동안 클립보드를 쥐고 있어 Excel 자신의 다음 복사가 실패한다.
@@ -213,6 +224,8 @@ internal static class ClipboardReader
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetClipboardOwner();
+    [DllImport("user32.dll")]
+    private static extern uint GetClipboardSequenceNumber();
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]

@@ -152,6 +152,7 @@ public sealed class ClipboardUiTests
     public Task EchoedClipboardIsNeitherRewrittenNorBroadcastAgain() => OnSta(() =>
     {
         var original = Clipboard.GetDataObject();
+        System.Diagnostics.Process? writer = null;
         try
         {
             Clipboard.Clear();
@@ -162,13 +163,14 @@ public sealed class ClipboardUiTests
             PumpFor(300);
             Assert.Empty(copies);
 
-            Clipboard.SetText("echoed remote copy"); // echo: same text, no marker, new sequence
+            writer = StartBackgroundClipboardWriter("echoed remote copy"); // a different sync process drops the marker
             PumpFor(600);
             Assert.Empty(copies);
             Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess());
             monitor.ApplyReceived(new ClipboardContent { Format = "text", Data = remote.Data.ToArray() });
             Assert.False(ClipboardReader.HasReceivedClipboardFromCurrentProcess()); // not rewritten
             Assert.Equal("echoed remote copy", Clipboard.GetText());
+            writer.Kill();
 
             Clipboard.SetText("new local copy");
             PumpUntil(() => copies.Count == 1);
@@ -182,6 +184,7 @@ public sealed class ClipboardUiTests
         }
         finally
         {
+            try { writer?.Kill(); } catch { }
             if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
         }
     });
@@ -533,6 +536,45 @@ public sealed class ClipboardUiTests
             if (original != null) Clipboard.SetDataObject(original, true, 10, 100);
             else Clipboard.Clear();
             Directory.Delete(folder, true);
+        }
+    });
+
+    [Fact]
+    [Trait("Category", "InteractiveShell")]
+    public Task NewerReceiveSupersedesAnOlderPendingReceive() => OnSta(() =>
+    {
+        var original = Clipboard.GetDataObject();
+        try
+        {
+            Clipboard.Clear();
+            using var monitor = new ClipboardMonitor(_ => { }, error => throw error, () => false);
+            using var lifetime = new CancellationTokenSource();
+            using var broadcaster = new ClipboardBroadcaster((_, _, _) => Task.CompletedTask, (_, _) => { });
+            var sync = new QueuedSynchronizationContext();
+            var context = (TrayApplicationContext)RuntimeHelpers.GetUninitializedObject(typeof(TrayApplicationContext));
+            foreach (var pair in new Dictionary<string, object>
+            {
+                ["_lifetime"] = lifetime, ["_sync"] = sync,
+                ["_clipboardMonitor"] = monitor, ["_clipboardBroadcaster"] = broadcaster,
+            })
+                typeof(TrayApplicationContext).GetField(pair.Key, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(context, pair.Value);
+            var receive = typeof(TrayApplicationContext).GetMethod("OnClipboardReceivedAsync", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var older = (Task)receive.Invoke(context, new object[] { "first peer",
+                new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("older") } })!;
+            var latest = (Task)receive.Invoke(context, new object[] { "second peer",
+                new ClipboardContent { Format = "text", Data = Encoding.UTF8.GetBytes("latest") } })!;
+            sync.RunNext();
+            PumpUntil(() => older.IsCompleted);
+            Assert.Throws<InvalidOperationException>(() => older.GetAwaiter().GetResult());
+            Assert.Empty(Clipboard.GetDataObject()?.GetFormats() ?? Array.Empty<string>());
+            sync.RunNext();
+            PumpUntil(() => latest.IsCompleted);
+            latest.GetAwaiter().GetResult();
+            Assert.Equal("latest", Clipboard.GetText());
+        }
+        finally
+        {
+            if (original != null) Clipboard.SetDataObject(original, true, 10, 100); else Clipboard.Clear();
         }
     });
 
