@@ -43,6 +43,10 @@ jobs:
       - name: Build Windows 7 installer
         run: iscc installer/IntraDrop-Win7.iss
 
+      - name: Verify custom destinations and reinstalls
+        shell: pwsh
+        run: Get-ChildItem installer/Output/*.exe | ForEach-Object { ./scripts/test-installer-path.ps1 -Installer $_.FullName }
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:

@@ -4,7 +4,7 @@
 ; 32비트/64비트 Windows 모두 지원 (AnyCPU)
 
 #define MyAppName "IntraDrop"
-#define MyAppVersion "1.10.5"
+#define MyAppVersion "1.10.6"
 #define MyAppPublisher "yunhyok"
 #define MyAppURL "https://github.com/yunhyok/IntraDrop"
 #define MyAppExeName "IntraDrop.exe"
@@ -18,10 +18,13 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
+DisableDirPage=no
+UsePreviousAppDir=yes
+UsePreviousPrivileges=yes
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-PrivilegesRequired=lowest
+PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=Output
 OutputBaseFilename=IntraDrop-Setup-{#MyAppVersion}-win7
