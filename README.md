@@ -152,6 +152,6 @@ iscc installer/IntraDrop-Win7.iss   # Windows 7용
 
 [MIT License](LICENSE)
 
-## Installer 1.10.6
+## Installer 1.10.7
 
 The destination page is shown on fresh installs and reinstalls, with a Browse button for another drive or folder. New all-user installs default to Windows Program Files. Existing install mode, selected path and user settings are preserved. Choosing the current-user mode keeps its per-user default and needs no administrator rights.
