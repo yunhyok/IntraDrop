@@ -7,16 +7,18 @@ public class DropForm : Form
 {
     private readonly PeerInfo _peer;
     private readonly Func<AppSettings> _getSettings;
+    private readonly Action<string> _copyNotice;
     private readonly Label _dropLabel;
     private readonly ProgressBar _progress;
     private readonly Label _status;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private int _queued;
 
-    public DropForm(PeerInfo peer, Func<AppSettings> getSettings)
+    public DropForm(PeerInfo peer, Func<AppSettings> getSettings, Action<string> copyNotice)
     {
         _peer = peer;
         _getSettings = getSettings;
+        _copyNotice = copyNotice;
 
         Text = $"{AppInfo.DisplayName} - {peer.Nickname} 에게 보내기";
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
@@ -115,9 +117,11 @@ public class DropForm : Form
             if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
                 throw new InvalidOperationException("저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
             string secret = secretState.Secret ?? "";
+            var copyNotice = new Progress<string>(_copyNotice);
             int count = await Task.Run(() => TransferClient.SendAsync(
                 _peer.Host, settings.Port, settings.DeviceName, paths,
-                secret, progress, CancellationToken.None, settings.DeviceId, _peer.DeviceId));
+                secret, progress, CancellationToken.None, settings.DeviceId, _peer.DeviceId,
+                copyNotice: copyNotice));
 
             _progress.Value = 1000;
             _status.ForeColor = Color.DarkGreen;

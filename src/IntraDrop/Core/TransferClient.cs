@@ -176,7 +176,8 @@ public static class TransferClient
         IProgress<TransferProgress>? progress,
         CancellationToken ct,
         string? senderDeviceId = null,
-        string? recipientDeviceId = null)
+        string? recipientDeviceId = null,
+        IProgress<string>? copyNotice = null)
     {
         var files = CollectFiles(paths);
         if (files.Count == 0)
@@ -184,20 +185,30 @@ public static class TransferClient
         if (files.Count > Protocol.MaxItemCount)
             throw new InvalidOperationException($"한 번에 보낼 수 있는 파일은 {Protocol.MaxItemCount}개까지입니다.");
 
-        long totalSize = files.Sum(f => f.Size);
-        var key = KeyMaterial.FromSecret(secret);
-        var header = new TransferHeader
+        try
         {
-            Type = "transfer",
-            SenderName = senderName,
-            SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
-            RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "",
-            TotalSize = totalSize,
-            Items = files.Select(f => new TransferItem { Path = f.RelPath, Size = f.Size }).ToList(),
-        };
+            // Prepare large copies before connecting so the receiver's idle timer doesn't expire.
+            foreach (var file in files)
+                await file.PrepareAsync(ct);
 
-        await SendPayloadAsync(host, port, header, secret, progress, ct, files, null);
-        return files.Count;
+            var key = KeyMaterial.FromSecret(secret);
+            var header = new TransferHeader
+            {
+                Type = "transfer",
+                SenderName = senderName,
+                SenderDeviceId = key == null ? "" : senderDeviceId ?? "",
+                RecipientDeviceId = key == null ? "" : recipientDeviceId ?? "",
+                TotalSize = files.Sum(f => f.Size),
+                Items = files.Select(f => new TransferItem { Path = f.RelPath, Size = f.Size }).ToList(),
+            };
+
+            await SendPayloadAsync(host, port, header, secret, progress, ct, files, null, copyNotice);
+            return files.Count;
+        }
+        finally
+        {
+            foreach (var file in files) file.Copy?.Dispose();
+        }
     }
 
     public static async Task<int> SendClipboardAsync(
@@ -261,7 +272,7 @@ public static class TransferClient
     private static async Task SendPayloadAsync(
         string host, int port, TransferHeader header, string? secret,
         IProgress<TransferProgress>? progress, CancellationToken ct,
-        IReadOnlyList<PayloadFile> files, byte[]? data)
+        IReadOnlyList<PayloadFile> files, byte[]? data, IProgress<string>? copyNotice = null)
     {
         var key = KeyMaterial.FromSecret(secret);
 
@@ -321,12 +332,19 @@ public static class TransferClient
                     var file = files[i];
                     progress?.Report(new TransferProgress(file.RelPath, i + 1, files.Count, sentTotal, header.TotalSize));
 
-                    using var fs = new FileStream(file.FullPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var fs = await file.OpenReadAsync(ct);
+                    if (fs.Length != file.Size)
+                        throw new IOException($"전송 전에 파일 크기가 변경되었습니다. 다시 보내세요: {file.RelPath}");
+                    if (file.Copy != null && copyNotice != null)
+                    {
+                        copyNotice.Report(file.RelPath);
+                        copyNotice = null;
+                    }
                     long remaining = file.Size;
                     while (remaining > 0)
                     {
                         int toRead = (int)Math.Min(buffer.Length, remaining);
-                        int n = await fs.ReadAsync(buffer.AsMemory(0, toRead), ct);
+                        int n = await file.ReadBytesAsync(fs, buffer, toRead, ct);
                         if (n == 0)
                             throw new IOException($"전송 중 파일이 변경되었습니다: {file.RelPath}");
 
@@ -371,7 +389,7 @@ public static class TransferClient
             string path = Path.GetFullPath(raw);
             if (File.Exists(path))
             {
-                result.Add(new PayloadFile(path, Path.GetFileName(path)!, new FileInfo(path).Length));
+                result.Add(new PayloadFile(path, Path.GetFileName(path)!));
             }
             else if (Directory.Exists(path))
             {
@@ -380,7 +398,7 @@ public static class TransferClient
                 foreach (var f in Directory.EnumerateFiles(baseDir, "*", SearchOption.AllDirectories))
                 {
                     string rel = PathCompat.GetRelativePath(baseDir, f).Replace('\\', '/');
-                    result.Add(new PayloadFile(f, baseName + "/" + rel, new FileInfo(f).Length));
+                    result.Add(new PayloadFile(f, baseName + "/" + rel));
                 }
             }
         }
@@ -518,11 +536,89 @@ public static class TransferClient
 
     private sealed class PayloadFile
     {
-        public PayloadFile(string fullPath, string relPath, long size)
+        public PayloadFile(string fullPath, string relPath, long size = 0)
         { FullPath = fullPath; RelPath = relPath; Size = size; }
         public string FullPath { get; }
         public string RelPath { get; }
-        public long Size { get; }
+        public long Size { get; private set; }
+        public FileStream? Copy { get; private set; }
+
+        public async Task PrepareAsync(CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            var source = await OpenReadAsync(ct);
+            try { Size = source.Length; }
+            finally { if (Copy == null) source.Dispose(); }
+        }
+
+        public async Task<FileStream> OpenReadAsync(CancellationToken ct)
+        {
+            if (Copy != null) return Copy;
+            try { return File.OpenRead(FullPath); }
+            catch (IOException ex) when (IsFileLock(ex)) { }
+
+            try
+            {
+                using var source = new FileStream(FullPath, FileMode.Open, FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.Asynchronous | FileOptions.SequentialScan);
+                string path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+                var copy = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite,
+                    FileShare.None, 81920, FileOptions.DeleteOnClose | FileOptions.Asynchronous);
+                try
+                {
+                    await CopyAndVerifyAsync(source, copy, ct);
+                    Copy = copy;
+                    return copy;
+                }
+                catch { copy.Dispose(); throw; }
+            }
+            catch (IOException ex) when (IsFileLock(ex))
+            {
+                throw ReadBlocked(ex);
+            }
+        }
+
+        public async Task<int> ReadBytesAsync(FileStream source, byte[] buffer, int count, CancellationToken ct)
+        {
+            try { return await source.ReadAsync(buffer, 0, count, ct); }
+            catch (IOException ex) when (IsFileLock(ex)) { throw ReadBlocked(ex); }
+        }
+
+        private IOException ReadBlocked(IOException ex) =>
+            new IOException($"다른 프로그램에서 '{RelPath}' 읽기를 막고 있습니다. 파일을 닫은 뒤 다시 보내세요.", ex);
+
+        // ERROR_SHARING_VIOLATION and ERROR_LOCK_VIOLATION.
+        private static bool IsFileLock(IOException ex) =>
+            ex.HResult == unchecked((int)0x80070020) || ex.HResult == unchecked((int)0x80070021);
+
+        private async Task CopyAndVerifyAsync(FileStream source, FileStream copy, CancellationToken ct)
+        {
+            long size = source.Length;
+            byte[] buffer = new byte[81920], saved = new byte[81920];
+            string changed = $"복사 중 '{RelPath}' 내용이 변경되었습니다. 저장을 마친 뒤 다시 보내세요.";
+            // Windows may defer updating the last-write time while the editor holds its handle.
+            for (int pass = 0; pass < 2; pass++)
+            {
+                source.Position = copy.Position = 0;
+                for (long remaining = size; remaining > 0;)
+                {
+                    int count = (int)Math.Min(remaining, buffer.Length);
+                    int read = await source.ReadAsync(buffer, 0, count, ct);
+                    if (read == 0) throw new IOException(changed);
+                    if (pass == 0)
+                        await copy.WriteAsync(buffer, 0, read, ct);
+                    else
+                    {
+                        await Protocol.ReadExactlyAsync(copy, saved, 0, read, ct);
+                        if (!buffer.AsSpan(0, read).SequenceEqual(saved.AsSpan(0, read)))
+                            throw new IOException(changed);
+                    }
+                    remaining -= read;
+                }
+                if (source.Length != size) throw new IOException(changed);
+            }
+            copy.Position = 0;
+        }
     }
 
     private sealed class SelectedSource

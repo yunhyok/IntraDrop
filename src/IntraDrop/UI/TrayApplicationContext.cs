@@ -313,7 +313,7 @@ public class TrayApplicationContext : ApplicationContext
         }
     }
 
-    private static Icon LoadAppIcon()
+    internal static Icon LoadAppIcon()
     {
         try
         {
@@ -406,7 +406,7 @@ public class TrayApplicationContext : ApplicationContext
             existing.Activate();
             return;
         }
-        var form = new DropForm(peer, () => _settings);
+        var form = new DropForm(peer, () => _settings, path => FileCopyNotice.Show(_tray, path));
         _dropForms[key] = form;
         form.FormClosed += (_, _) => _dropForms.Remove(key);
         form.Show();

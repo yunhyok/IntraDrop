@@ -98,11 +98,10 @@ internal static class Program
             if (secretState.Availability == SettingsStore.SecretAvailability.Unavailable)
                 throw new InvalidOperationException("저장된 공유 암호를 복호화할 수 없습니다. 설정에서 암호를 교체하거나 지우세요.");
             string? recipientId = Guid.TryParse(peer.DeviceId?.Trim(), out var id) ? id.ToString("N") : null;
-            TransferClient.SendAsync(
+            FileCopyNotice.Run(copyNotice => TransferClient.SendAsync(
                 peer.Host.Trim(), settings.Port, settings.DeviceName, args.Skip(2).ToArray(),
                 secretState.Secret ?? "", progress: null, CancellationToken.None,
-                senderDeviceId: settings.DeviceId, recipientDeviceId: recipientId)
-                .GetAwaiter().GetResult();
+                senderDeviceId: settings.DeviceId, recipientDeviceId: recipientId, copyNotice: copyNotice));
             return 0;
         }
         catch (Exception ex)
