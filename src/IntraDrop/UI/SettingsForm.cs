@@ -141,11 +141,11 @@ public class SettingsForm : Form
 
         _peerDiscovery = new CheckBox
         {
-            Text = "인증된 피어 UDP 자동 검색 (직접 IP 알림은 공유 암호·인증된 장치 ID 필요)",
+            Text = "IP가 바뀐 컴퓨터 자동 검색 (같은 네트워크, 공유 암호 필요)",
             AutoSize = true,
             Checked = settings.EnablePeerDiscovery,
             Anchor = AnchorStyles.Left,
-            Margin = new Padding(3, 8, 3, 8),
+            Margin = new Padding(3, 8, 3, 0),
         };
 
         _acceptFromRegisteredOnly = new CheckBox
@@ -154,7 +154,7 @@ public class SettingsForm : Form
             AutoSize = true,
             Checked = settings.AcceptFromRegisteredOnly,
             Anchor = AnchorStyles.Left,
-            Margin = new Padding(3, 8, 3, 8),
+            Margin = new Padding(3, 8, 3, 0),
         };
 
         var ok = UiKit.DialogButton("저장", DialogResult.OK);
@@ -188,7 +188,9 @@ public class SettingsForm : Form
         layout.Controls.Add(secretRow, 1, row++);
         layout.Controls.Add(UiKit.HintLabel("모든 컴퓨터에 같은 유효한 공유 암호를 설정하세요. 입력을 비워 둔 채 저장하면 기존 암호를 유지합니다."), 1, row++);
         layout.Controls.Add(_acceptFromRegisteredOnly, 1, row++);
+        layout.Controls.Add(UiKit.HintLabel("켜면 컴퓨터 목록에 없는 컴퓨터가 보낸 파일과 클립보드를 거부합니다."), 1, row++);
         layout.Controls.Add(_peerDiscovery, 1, row++);
+        layout.Controls.Add(UiKit.HintLabel("등록된 컴퓨터의 IP가 바뀌면 인증한 뒤 주소를 자동으로 갱신합니다."), 1, row++);
 
         var buttons = UiKit.ButtonRow(ok, cancel);
         layout.Controls.Add(buttons, 0, row);

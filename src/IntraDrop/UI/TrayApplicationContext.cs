@@ -27,13 +27,18 @@ public class TrayApplicationContext : ApplicationContext
 
     private AppSettings _settings;
     private PeerListForm? _peerList;
+    private Form? _help;
+    private SettingsForm? _settingsDialog;
 
     public TrayApplicationContext()
     {
         _sync = new WindowsFormsSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(_sync);
 
+        bool firstRun = !File.Exists(SettingsStore.FilePath);
         _settings = SettingsStore.Load();
+        // 첫 실행에서는 인스톨러의 "Windows 시작 시 자동 실행" 선택(Run 키 유무)을 따른다. 기본값 true 로 덮어쓰면 선택 해제가 무시된다.
+        if (firstRun) { try { _settings.AutoStart = AutoStart.IsEnabled(); } catch { } }
         _peerRegistry = new PeerRegistry(_settings);
         _discovery = new PeerDiscoveryService(() => _settings, () => SettingsStore.ReadSecret(_settings));
         _discovery.CandidateReceived += OnDiscoveryCandidate;
@@ -160,7 +165,10 @@ public class TrayApplicationContext : ApplicationContext
     private ContextMenuStrip BuildMenu()
     {
         var menu = new ContextMenuStrip { ShowItemToolTips = true };
-        menu.Items.Add("컴퓨터 목록(&L)", null, (_, _) => ShowPeerList());
+        menu.Items.Add(new ToolStripMenuItem("컴퓨터 목록(&L)", null, (_, _) => ShowPeerList())
+        {
+            Font = new Font(menu.Font, FontStyle.Bold),   // 더블클릭 기본 동작 (Windows 관례)
+        });
         _clipboardStatus = new ToolStripMenuItem("클립보드 자동 공유 중")
         {
             Enabled = false,
@@ -414,8 +422,12 @@ public class TrayApplicationContext : ApplicationContext
 
     private void ShowSettings()
     {
+        // 트레이 메뉴는 모달 대화상자가 떠 있어도 열리므로 두 번째 설정 창이 겹치지 않게 한다.
+        if (_settingsDialog != null) { _settingsDialog.Activate(); return; }
         using var dlg = new SettingsForm(_settings);
-        if (dlg.ShowDialog() != DialogResult.OK) return;
+        _settingsDialog = dlg;
+        try { if (dlg.ShowDialog() != DialogResult.OK) return; }
+        finally { _settingsDialog = null; }
 
         int oldPort = _settings.Port;
         bool oldDiscovery = _settings.EnablePeerDiscovery;
@@ -455,11 +467,17 @@ public class TrayApplicationContext : ApplicationContext
 
     private void OpenHelp()
     {
+        if (_help != null && !_help.IsDisposed)
+        {
+            if (_help.WindowState == FormWindowState.Minimized) _help.WindowState = FormWindowState.Normal;
+            _help.Activate();
+            return;
+        }
         string path = Path.Combine(AppContext.BaseDirectory, "Help", "index.html");
         try
         {
             if (!File.Exists(path)) throw new FileNotFoundException("도움말 파일을 찾을 수 없습니다.", path);
-            using var help = new Form
+            var help = new Form
             {
                 Text = AppInfo.DisplayName + " 도움말",
                 Icon = LoadAppIcon(),
@@ -473,7 +491,10 @@ public class TrayApplicationContext : ApplicationContext
                 ScriptErrorsSuppressed = true,
                 Url = new Uri(path),
             });
-            help.ShowDialog();
+            help.FormClosed += (_, _) => _help = null;
+            _help = help;
+            // 모달(ShowDialog)이면 도움말을 보는 동안 컴퓨터 목록·설정 창을 조작할 수 없어 따라 하기가 불가능하다.
+            help.Show();
         }
         catch (Exception ex)
         {
@@ -484,15 +505,14 @@ public class TrayApplicationContext : ApplicationContext
 
     private void ShowAbout()
     {
-        string version = Application.ProductVersion.Split('+')[0];
         MessageBox.Show(
-            $"IntraDrop {version}\n\n인트라넷 컴퓨터 간 파일 전송 트레이 프로그램\n" +
+            $"{AppInfo.DisplayName}\n\n인트라넷 컴퓨터 간 파일 전송 트레이 프로그램\n" +
             "https://github.com/yunhyok/IntraDrop\n\n" +
             "· 트레이 아이콘 더블클릭: 컴퓨터 목록\n" +
-            "· 트레이 아이콘 우클릭 → 도움말: 그림으로 보는 사용법\n" +
+            "· 컴퓨터 더블클릭: 보내기 창 (파일·폴더를 끌어다 놓기)\n" +
+            "· 탐색기 우클릭 → 보내기 → IntraDrop - 컴퓨터 이름\n" +
             "· 텍스트·이미지 복사: 등록된 모든 컴퓨터에 자동 공유\n" +
-            "· 컴퓨터 더블클릭: 보내기 창 열기\n" +
-            "· 보내기 창에 파일/폴더를 끌어다 놓으면 전송됩니다.",
+            "· 트레이 아이콘 우클릭 → 도움말: 그림으로 보는 사용법",
             AppInfo.DisplayName + " 정보", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 

@@ -41,9 +41,10 @@ public class PeerEditForm : Form
         layout.Controls.Add(_nickname, 1, 0);
         layout.Controls.Add(UiKit.FieldLabel("주소(IP):"), 0, 1);
         layout.Controls.Add(_host, 1, 1);
+        layout.Controls.Add(UiKit.HintLabel("예: 192.168.0.25 또는 컴퓨터 이름"), 1, 2);
 
         var buttons = UiKit.ButtonRow(ok, cancel);
-        layout.Controls.Add(buttons, 0, 2);
+        layout.Controls.Add(buttons, 0, 3);
         layout.SetColumnSpan(buttons, 2);
 
         Controls.Add(layout);
