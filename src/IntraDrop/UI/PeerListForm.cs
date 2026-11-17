@@ -308,30 +308,37 @@ public class PeerListForm : Form
         foreach (var (item, _) in snapshot)
             item.SubItems[2].Text = "확인 중...";
 
+        var offline = (Text: "오프라인", Color: SystemColors.GrayText, Legacy: false);
         var tasks = snapshot.Select(async entry =>
         {
             try
             {
-            string? name;
-            var secretState = SettingsStore.ReadSecret(settings);
-            if (secretState.IsAvailable && !string.IsNullOrWhiteSpace(entry.Peer.DeviceId))
-                name = await TryTransitiveRefreshAsync(entry.Peer, settings, refreshToken);
-            else name = await TransferClient.PingAsync(entry.Peer.Host, settings.Port, settings.DeviceName);
-            return (entry.Item, Name: name);
+                string? name;
+                var secretState = SettingsStore.ReadSecret(settings);
+                if (secretState.IsAvailable && !string.IsNullOrWhiteSpace(entry.Peer.DeviceId))
+                    name = await TryTransitiveRefreshAsync(entry.Peer, settings, refreshToken);
+                else name = (await TransferClient.PingAsync(entry.Peer.Host, settings.Port, settings.DeviceName))?.Name;
+                if (name != null) return (entry.Item, Status: ($"온라인 ({name})", Color.DarkGreen, false));
+                // 1.10.x 이하는 새 매직을 거부하므로 옛 매직으로 한 번 더 두드려 "오프라인" 대신 업데이트 안내를 띄운다.
+                var legacy = await TransferClient.PingAsync(entry.Peer.Host, settings.Port, settings.DeviceName, magic: Protocol.LegacyMagic);
+                return (entry.Item, Status: legacy != null
+                    ? ($"업데이트 필요 ({legacy.Name} {legacy.Version})", Color.DarkGoldenrod, true)
+                    : offline);
             }
-            catch (OperationCanceledException) { return (entry.Item, Name: (string?)null); }
+            catch (OperationCanceledException) { return (entry.Item, Status: offline); }
         }).ToList();
 
         foreach (var task in tasks)
         {
-            var (item, name) = await task;
+            var (item, (text, color, legacy)) = await task;
             if (IsDisposed || generation != _refreshGeneration) return;
             if (item.ListView == null) continue;
             var peer = (PeerInfo)item.Tag!;
             item.SubItems[1].Text = peer.Host;
-            item.ToolTipText = IdentityToolTip(peer);
-            item.SubItems[2].Text = name != null ? $"온라인 ({name})" : "오프라인";
-            item.ForeColor = name != null ? Color.DarkGreen : SystemColors.GrayText;
+            item.ToolTipText = IdentityToolTip(peer) + (legacy
+                ? "\n이 컴퓨터의 IntraDrop이 이전 버전입니다. 같은 버전으로 업데이트해야 파일과 클립보드를 주고받을 수 있습니다." : "");
+            item.SubItems[2].Text = text;
+            item.ForeColor = color;
         }
     }
 

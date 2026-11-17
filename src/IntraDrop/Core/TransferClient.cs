@@ -104,9 +104,10 @@ public static class TransferClient
         return result;
     }
 
-    /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름을 반환한다.
-    /// ping 은 언제나 평문이며 상대의 공유 암호 설정과 무관하게 응답한다.</summary>
-    public static async Task<string?> PingAsync(string host, int port, string myName, int timeoutMs = 2500)
+    /// <summary>온라인 여부 확인. 성공하면 상대 장치 이름과 버전이 담긴 pong 을 반환한다.
+    /// ping 은 언제나 평문이며 상대의 공유 암호 설정과 무관하게 응답한다.
+    /// magic 에 <see cref="Protocol.LegacyMagic"/> 을 주면 1.10.x 이하 상대가 살아 있는지만 확인할 수 있다.</summary>
+    public static async Task<PongMessage?> PingAsync(string host, int port, string myName, int timeoutMs = 2500, byte[]? magic = null)
     {
         try
         {
@@ -116,13 +117,13 @@ public static class TransferClient
             using var net = tcp.GetStream();
             using var stream = new TimeoutStream(net, timeoutMs, timeoutMs, cts.Token);
 
-            await Protocol.WriteMagicAsync(stream, Protocol.FlagPlain, cts.Token);
+            await Protocol.WriteMagicAsync(stream, Protocol.FlagPlain, cts.Token, magic);
             byte[] nonce = await Protocol.ReadNonceAsync(stream, cts.Token);
             await Segment.WriteSegmentAsync(stream, null, nonce, Segment.IndexA,
                 Protocol.ToJsonBytes(new TransferHeader { Type = "ping", SenderName = myName }), cts.Token);
 
             var pong = await Protocol.ReadJsonAsync<PongMessage>(stream, cts.Token);
-            return pong.Type == "pong" ? pong.Name : null;
+            return pong.Type == "pong" ? pong : null;
         }
         catch
         {
