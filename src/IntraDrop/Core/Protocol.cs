@@ -41,8 +41,11 @@ public class PongMessage
 
 public static class Protocol
 {
-    /// <summary>보안 프로토콜 v2 매직. v1(IDRP1)과는 호환되지 않는다.</summary>
-    public static readonly byte[] Magic = Encoding.ASCII.GetBytes("IDRP2");
+    /// <summary>프로토콜 v3 매직 (암호문 MAC). v2(IDRP2, 1.3~1.10)·v1(IDRP1)과는 호환되지 않는다.</summary>
+    public static readonly byte[] Magic = Encoding.ASCII.GetBytes("IDRP3");
+
+    /// <summary>1.10.x 이하가 쓰던 매직. 컴퓨터 목록에서 "업데이트 필요" 를 알아내는 ping 에만 쓴다.</summary>
+    public static readonly byte[] LegacyMagic = Encoding.ASCII.GetBytes("IDRP2");
 
     public const int MaxJsonLength = 32 * 1024 * 1024;
     public const int MaxPeerSnapshotResponseLength = 64 * 1024;
@@ -100,18 +103,19 @@ public static class Protocol
         return FromJsonBytes<T>(payload);
     }
 
-    /// <summary>매직 5바이트 + 플래그 1바이트를 쓴다.</summary>
-    public static async Task WriteMagicAsync(Stream stream, byte flags, CancellationToken ct)
+    /// <summary>매직 5바이트 + 플래그 1바이트를 쓴다. magic 생략 시 현재 프로토콜.</summary>
+    public static async Task WriteMagicAsync(Stream stream, byte flags, CancellationToken ct, byte[]? magic = null)
     {
-        byte[] buf = new byte[Magic.Length + 1];
-        Buffer.BlockCopy(Magic, 0, buf, 0, Magic.Length);
-        buf[Magic.Length] = flags;
+        magic ??= Magic;
+        byte[] buf = new byte[magic.Length + 1];
+        Buffer.BlockCopy(magic, 0, buf, 0, magic.Length);
+        buf[magic.Length] = flags;
         await stream.WriteAsync(buf, 0, buf.Length, ct).ConfigureAwait(false);
         await stream.FlushAsync(ct).ConfigureAwait(false);
     }
 
     /// <summary>매직 5바이트 + 플래그 1바이트를 읽고 플래그를 돌려준다.
-    /// 매직이 다르면(구버전 IDRP1 포함) 예외를 던진다.</summary>
+    /// 매직이 다르면(구버전 IDRP1·IDRP2 포함) 예외를 던진다.</summary>
     public static async Task<byte> ReadMagicAsync(Stream stream, CancellationToken ct)
     {
         byte[] buf = new byte[Magic.Length + 1];
@@ -124,11 +128,17 @@ public static class Protocol
         return buf[Magic.Length];
     }
 
-    /// <summary>서버가 보내는 세션 nonce 16바이트를 읽는다.</summary>
+    /// <summary>서버가 보내는 세션 nonce 16바이트를 읽는다.
+    /// 매직 직후 연결이 끊기는 경우는 상대가 다른 프로토콜 버전(1.10.x 이하)일 때뿐이므로 그 뜻을 바로 알린다.</summary>
     public static async Task<byte[]> ReadNonceAsync(Stream stream, CancellationToken ct)
     {
         byte[] nonce = new byte[KeyMaterial.NonceLength];
-        await ReadExactlyAsync(stream, nonce, 0, nonce.Length, ct).ConfigureAwait(false);
+        try { await ReadExactlyAsync(stream, nonce, 0, nonce.Length, ct).ConfigureAwait(false); }
+        catch (EndOfStreamException ex)
+        {
+            throw new InvalidOperationException(
+                "상대 컴퓨터가 연결을 바로 끊었습니다. IntraDrop 버전이 서로 다르면 이렇게 되므로 모든 컴퓨터를 같은 버전으로 업데이트하세요.", ex);
+        }
         return nonce;
     }
 
