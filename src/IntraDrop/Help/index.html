@@ -4,92 +4,190 @@
   <meta charset="utf-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>IntraDrop 1.10.5 도움말</title>
+  <title>IntraDrop 도움말</title>
   <style>
     * { box-sizing:border-box; }
-    header, main, section, figure, footer { display:block; }
+    header, nav, main, section, figure, figcaption, footer { display:block; }
     body { margin:0; font:16px/1.65 "Segoe UI","Malgun Gothic",sans-serif; color:#20242a; background:#eef3f7; }
-    header { background:linear-gradient(135deg,#0b4f85,#2787c4); color:white; padding:38px 20px; }
+    header { background:#0b4f85; background:linear-gradient(135deg,#0b4f85,#2787c4); color:white; padding:34px 20px; }
     header div, main { max-width:980px; margin:auto; }
-    h1 { margin:0 0 8px; font-size:32px; } h2 { color:#0b4f85; margin-top:0; } h3 { margin-bottom:6px; }
+    h1 { margin:0 0 8px; font-size:30px; } h2 { color:#0b4f85; margin-top:0; } h3 { margin:22px 0 6px; }
     header p { margin:0; opacity:.92; }
-    main { background:white; padding:30px 36px 56px; box-shadow:0 2px 14px rgba(22,50,74,.1); }
-    nav { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:28px; }
-    nav a { color:#1769aa; text-decoration:none; border:1px solid #b9d0e2; border-radius:18px; padding:5px 12px; }
-    section { border-top:1px solid #d9e0e7; padding-top:28px; margin-top:32px; }
-    .step { display:flex; margin:18px 0; }
+    main { background:white; padding:28px 36px 56px; box-shadow:0 2px 14px rgba(22,50,74,.1); }
+    nav { margin-bottom:24px; }
+    nav a { display:inline-block; color:#1769aa; text-decoration:none; border:1px solid #b9d0e2; border-radius:18px; padding:4px 12px; margin:0 6px 8px 0; }
+    section { border-top:1px solid #d9e0e7; padding-top:26px; margin-top:30px; }
+    .step { display:flex; margin:16px 0; }
     .step > div:last-child { flex:1; }
-    .num { flex:none; width:36px; height:36px; margin-right:20px; border-radius:50%; background:#1769aa; color:white; display:flex; align-items:center; justify-content:center; font-weight:700; }
-    .shot { margin:18px 0 8px; border:1px solid #aeb9c3; border-radius:8px; overflow:hidden; background:#f4f8fb; }
+    .num { flex:none; width:34px; height:34px; margin-right:18px; border-radius:50%; background:#1769aa; color:white; display:flex; align-items:center; justify-content:center; font-weight:700; }
+    .step p { margin:4px 0; }
+    .shot { margin:16px 0 8px; border:1px solid #aeb9c3; border-radius:8px; overflow:hidden; background:#f4f8fb; }
     .shot img { display:block; max-width:100%; height:auto; margin:auto; }
     .caption { margin:7px 12px 10px; color:#5f6b76; font-size:14px; }
-    .note,.warning { border-left:5px solid #1769aa; padding:12px 15px; margin:18px 0; background:#f4f8fb; }
+    .note, .warning { border-left:5px solid #1769aa; padding:12px 15px; margin:16px 0; background:#f4f8fb; }
     .warning { border-color:#c68a00; background:#fff5d6; }
-    code { background:#edf1f4; padding:2px 5px; border-radius:4px; }
-    table { width:100%; border-collapse:collapse; } th,td { border:1px solid #d9e0e7; padding:10px; text-align:left; vertical-align:top; } th { background:#f4f8fb; }
+    code, kbd { background:#edf1f4; padding:2px 6px; border-radius:4px; font-family:Consolas,"Malgun Gothic",monospace; font-size:14px; }
+    kbd { border:1px solid #c5ccd3; border-bottom-width:2px; background:#fff; }
+    table { width:100%; border-collapse:collapse; margin:12px 0; }
+    th, td { border:1px solid #d9e0e7; padding:9px 10px; text-align:left; vertical-align:top; }
+    th { background:#f4f8fb; white-space:nowrap; }
+    td:first-child { white-space:nowrap; font-weight:600; }
+    ul, ol { padding-left:22px; } li { margin:4px 0; }
     footer { margin-top:42px; color:#5f6b76; font-size:14px; }
-    @media (max-width:700px) { main { padding:24px 18px 40px; } h1 { font-size:27px; } }
+    @media (max-width:700px) { main { padding:24px 18px 40px; } h1 { font-size:26px; } td:first-child { white-space:normal; } }
   </style>
 </head>
 <body>
-<header><div><h1>IntraDrop 1.10.5 도움말</h1><p>외부 컴퓨터를 등록하고 파일과 폴더를 안전하게 보내는 방법</p></div></header>
+<header><div><h1>IntraDrop 도움말</h1><p>같은 네트워크의 Windows 컴퓨터끼리 파일을 보내고 클립보드를 함께 쓰는 방법</p></div></header>
 <main>
-  <nav><a href="#prepare">시작 전 준비</a><a href="#register">컴퓨터 등록</a><a href="#send">파일 보내기</a><a href="#clipboard">클립보드 전달</a><a href="#settings">보안 설정</a><a href="#trouble">문제 해결</a></nav>
+  <nav>
+    <a href="#overview">한눈에 보기</a><a href="#prepare">1. 시작 전 준비</a><a href="#register">2. 컴퓨터 등록</a><a href="#send">3. 파일 보내기</a><a href="#receive">4. 파일 받기</a><a href="#clipboard">5. 클립보드 공유</a><a href="#settings">6. 설정</a><a href="#trouble">7. 문제 해결</a>
+  </nav>
+
+  <section id="overview" style="border-top:0;padding-top:0;margin-top:0"><h2>한눈에 보기</h2>
+    <p>IntraDrop은 작업 표시줄 오른쪽 알림 영역(트레이)에 아이콘으로만 떠 있습니다. 아이콘이 보이지 않으면 알림 영역의 <strong>∧</strong>(숨겨진 아이콘 표시)를 누르세요.</p>
+    <table>
+      <tr><th>하고 싶은 일</th><th>이렇게 하세요</th></tr>
+      <tr><td>컴퓨터 목록 열기</td><td>트레이 아이콘을 <strong>더블클릭</strong>합니다.</td></tr>
+      <tr><td>파일·폴더 보내기</td><td>컴퓨터 목록에서 대상을 더블클릭하고 보내기 창에 끌어다 놓습니다. 또는 탐색기에서 우클릭 → <strong>보내기</strong> → <strong>IntraDrop - 컴퓨터 이름</strong></td></tr>
+      <tr><td>글·그림 보내기</td><td>그냥 <kbd>Ctrl</kbd>+<kbd>C</kbd>. 등록된 모든 컴퓨터에 자동으로 전달되고, 상대 컴퓨터에서 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여넣습니다.</td></tr>
+      <tr><td>받은 파일 찾기</td><td>수신 알림 풍선을 클릭하거나 트레이 아이콘 우클릭 → <strong>다운로드 폴더 열기</strong></td></tr>
+      <tr><td>설정·도움말·종료</td><td>트레이 아이콘을 <strong>우클릭</strong>합니다.</td></tr>
+    </table>
+    <figure class="shot"><img src="images/05-clipboard-menu.png" alt="IntraDrop 트레이 메뉴"><figcaption class="caption">트레이 아이콘을 우클릭하면 나오는 메뉴. 두 번째 줄은 클립보드 자동 공유의 현재 상태입니다.</figcaption></figure>
+  </section>
 
   <section id="prepare"><h2>1. 시작 전 준비</h2>
-    <div class="step"><div class="num">1</div><div><h3>두 컴퓨터에 IntraDrop 설치</h3><p>보내는 컴퓨터와 받는 컴퓨터 모두에 같은 최신 버전을 설치하고 IntraDrop을 실행합니다.</p></div></div>
-    <div class="step"><div class="num">2</div><div><h3>상대 컴퓨터의 주소 확인</h3><p>등록할 상대 컴퓨터에서 IPv4 주소 또는 컴퓨터 이름을 확인합니다. 예: <code>192.168.0.25</code>. 두 컴퓨터가 같은 사내망·가정망·연결 가능한 VPN에 있어야 합니다.</p></div></div>
-    <div class="step"><div class="num">3</div><div><h3>포트와 공유 암호 맞추기</h3><p>모든 컴퓨터에서 포트가 같아야 합니다(기본값 <code>45671</code>). 공유 암호를 사용할 경우 모든 컴퓨터에 같은 암호를 설정합니다.</p></div></div>
-    <div class="warning"><strong>Windows 방화벽:</strong> 첫 실행 시 허용 창이 나타나면 개인 네트워크에서 IntraDrop 통신을 허용하세요.</div>
+    <div class="step"><div class="num">1</div><div><h3 style="margin-top:4px">모든 컴퓨터에 설치</h3><p>파일을 주고받을 컴퓨터 <strong>모두</strong>에 IntraDrop을 설치하고 실행합니다. Windows 10/11용과 Windows 7용 설치 파일이 따로 있지만 서로 주고받을 수 있습니다. 모든 컴퓨터를 같은 최신 버전으로 맞추세요.</p></div></div>
+    <div class="step"><div class="num">2</div><div><h3 style="margin-top:4px">같은 네트워크에 연결</h3><p>사내망·가정망처럼 서로 연결되는 네트워크여야 합니다. 손님용 Wi-Fi나 격리된 네트워크에서는 컴퓨터끼리 통신이 막힐 수 있습니다.</p></div></div>
+    <div class="step"><div class="num">3</div><div><h3 style="margin-top:4px">Windows 방화벽 허용</h3><p>처음 실행할 때 방화벽 허용 창이 뜨면 <strong>개인 네트워크</strong>에 체크하고 <strong>액세스 허용</strong>을 누릅니다. 기본 포트는 TCP <code>45671</code>이며 모든 컴퓨터가 같은 포트를 써야 합니다.</p></div></div>
+    <div class="step"><div class="num">4</div><div><h3 style="margin-top:4px">(권장) 공유 암호 정하기</h3><p>트레이 아이콘 우클릭 → <strong>설정</strong>의 <strong>공유 암호</strong>에 모든 컴퓨터에서 같은 암호를 넣으면 전송이 암호화되고 상대를 인증합니다. 암호가 없으면 암호화 없이 보내므로 믿을 수 있는 사내망에서만 쓰세요.</p></div></div>
   </section>
 
-  <section id="register"><h2>2. 외부 컴퓨터 등록</h2>
-    <div class="step"><div class="num">1</div><div><p>작업 표시줄 알림 영역의 IntraDrop 아이콘을 <strong>더블클릭</strong>해 컴퓨터 목록을 열고 <strong>추가</strong>를 누릅니다.</p></div></div>
-    <div class="step"><div class="num">2</div><div><p><strong>별명</strong>에는 알아보기 쉬운 이름을, <strong>주소(IP)</strong>에는 상대 컴퓨터의 IPv4 주소나 컴퓨터 이름을 입력한 뒤 <strong>확인</strong>을 누릅니다.</p></div></div>
-    <figure class="shot"><img src="images/02-add-computer.png" alt="IntraDrop 컴퓨터 등록 창"><figcaption class="caption">컴퓨터 등록 창: 별명과 상대 컴퓨터 주소를 입력합니다.</figcaption></figure>
-    <div class="note">상대 컴퓨터의 IntraDrop이 실행 중이고 포트·공유 암호가 맞으면 상대 목록에도 내 컴퓨터가 자동 등록됩니다. 처음에는 상태가 <strong>확인 중</strong>으로 보였다가 온라인 또는 오프라인으로 바뀝니다.</div>
-    <div class="note"><strong>같은 컴퓨터와 별명 유지:</strong> 공유 암호로 확인한 고유 장치 ID와 Windows 컴퓨터 이름을 별도로 보관합니다. IP나 컴퓨터 이름이 바뀌어도 같은 장치 ID이면 기존 항목과 별명을 유지합니다. 목록의 항목 위에 마우스를 올리면 컴퓨터 이름과 장치 ID를 볼 수 있습니다. 컴퓨터 이름 교환은 양쪽 모두 1.8.2 이상에서 지원합니다.</div>
-    <p><strong>옛 IP 항목과 새 항목이 함께 남았다면:</strong> 기존 별명의 옛 항목을 선택하고 <strong>수정 → 현재 IP 입력 → 동일 컴퓨터 확인</strong>을 진행하세요. 현재 IP의 등록된 장치를 인증한 뒤 기존 별명을 유지해 하나로 합칩니다. 컴퓨터 이름만으로 임의로 합치지는 않습니다.</p>
+  <section id="register"><h2>2. 컴퓨터 등록</h2>
+    <p>보낼 상대 컴퓨터를 한 번만 등록하면 됩니다. 상대 컴퓨터에서 IntraDrop이 실행 중이고 포트·공유 암호가 맞으면, 상대 컴퓨터의 목록에도 내 컴퓨터가 <strong>자동으로 등록</strong>되므로 한쪽에서만 등록해도 됩니다.</p>
+    <div class="step"><div class="num">1</div><div><p><strong>상대 컴퓨터의 주소를 확인</strong>합니다. 상대 컴퓨터에서 트레이 아이콘을 더블클릭해 컴퓨터 목록을 열면 창 위쪽에 <strong>내 컴퓨터: 이름 · IP 192.168.x.x</strong>가 표시됩니다. 이 IP 주소(또는 Windows 컴퓨터 이름)를 받아 적습니다.</p></div></div>
+    <div class="step"><div class="num">2</div><div><p>내 컴퓨터에서 트레이 아이콘을 <strong>더블클릭</strong>해 컴퓨터 목록을 열고 <strong>추가</strong>를 누릅니다.</p></div></div>
+    <div class="step"><div class="num">3</div><div><p><strong>별명</strong>에는 알아보기 쉬운 이름을, <strong>주소(IP)</strong>에는 1에서 확인한 주소를 입력하고 <strong>확인</strong>을 누릅니다.</p></div></div>
+    <figure class="shot"><img src="images/02-add-computer.png" alt="IntraDrop 컴퓨터 등록 창"><figcaption class="caption">컴퓨터 등록 창. 별명을 비워 두면 주소가 별명이 됩니다.</figcaption></figure>
+    <div class="note">목록의 <strong>상태</strong>는 처음에 <em>확인 중...</em>으로 보였다가 <strong>온라인 (상대 장치 이름)</strong> 또는 <strong>오프라인</strong>으로 바뀝니다. <strong>새로고침</strong>으로 다시 확인할 수 있고, 항목 위에 마우스를 올리면 상대의 Windows 컴퓨터 이름과 장치 ID가 보입니다.</div>
+    <h3>상대 컴퓨터의 IP가 바뀌었을 때</h3>
+    <ul>
+      <li>공유 암호를 쓰고 있으면 바뀐 주소를 자동으로 찾아 갱신합니다. 프로그램이 시작될 때 등록된 컴퓨터에 자기 IP를 직접 알리고, 같은 네트워크에서는 자동 검색도 합니다.</li>
+      <li>공유 암호가 없으면 자동 갱신이 되지 않습니다. 항목을 선택하고 <strong>수정</strong>으로 새 IP를 입력하세요.</li>
+      <li>같은 컴퓨터가 두 줄로 보이면(옛 IP 항목 + 새 항목) 옛 항목을 선택하고 <strong>수정</strong> → 현재 IP 입력 → "같은 컴퓨터인가요?"에 <strong>예</strong>를 누르세요. 인증이 끝나면 기존 별명으로 한 항목으로 합쳐집니다.</li>
+    </ul>
   </section>
 
-  <section id="send"><h2>3. 파일 또는 폴더 보내기</h2>
-    <h3>방법 A — 트레이 목록에서 보내기</h3><ol><li>컴퓨터 목록에서 대상을 더블클릭하거나 선택 후 <strong>보내기 창</strong>을 누릅니다.</li><li>파일 또는 폴더를 보내기 창의 점선 영역으로 끌어다 놓습니다.</li><li>상태 줄에서 진행률과 완료 여부를 확인합니다.</li></ol>
-    <figure class="shot"><img src="images/03-send-window.png" alt="IntraDrop 파일 보내기 창"><figcaption class="caption">보내기 창: 파일과 폴더를 점선 영역에 끌어다 놓습니다.</figcaption></figure>
-    <h3>방법 B — 탐색기 우클릭 메뉴</h3><ol><li>탐색기에서 파일 또는 폴더를 선택하고 우클릭합니다.</li><li><strong>보내기</strong> → <strong>IntraDrop - 컴퓨터 이름</strong>을 선택합니다. 예: IntraDrop - Workstation. 다운로드한 설치 파일도 실행하지 않고 전송합니다.</li><li>Windows 11에서는 먼저 <strong>추가 옵션 표시</strong>를 선택해야 합니다.</li></ol>
-    <p><strong>편집 중인 파일</strong>은 디스크에 저장된 내용을 복사해 원래 이름으로 보냅니다. 이때 보내는 PC에 풍선 알림이 한 번 표시됩니다. 최신 편집 내용을 보내려면 먼저 저장하세요. 다른 프로그램이 파일 읽기까지 차단한 경우에는 파일을 닫은 뒤 다시 보내세요.</p>
-    <div class="note">받은 파일은 받는 컴퓨터의 설정에 지정된 다운로드 폴더에 저장됩니다. 큰 전송은 받는 쪽에서 수락을 요구할 수 있습니다.</div>
+  <section id="send"><h2>3. 파일·폴더 보내기</h2>
+    <h3>방법 A — 보내기 창에 끌어다 놓기</h3>
+    <ol>
+      <li>컴퓨터 목록에서 대상을 <strong>더블클릭</strong>하거나 선택한 뒤 <strong>보내기 창</strong>을 누릅니다. 화면 오른쪽 아래에 작은 창이 열리고 항상 위에 떠 있습니다.</li>
+      <li>탐색기에서 파일이나 폴더를 그 창으로 끌어다 놓습니다. 여러 개를 한꺼번에 놓아도 되고, 전송 중에 더 놓으면 순서대로 보냅니다.</li>
+      <li>아래 상태 줄에서 <em>연결 중</em> → <em>보내는 중 (진행률)</em> → <strong>완료</strong>를 확인합니다. 실패하면 이유가 빨간 글씨로 표시됩니다.</li>
+    </ol>
+    <figure class="shot"><img src="images/03-send-window.png" alt="IntraDrop 파일 보내기 창"><figcaption class="caption">보내기 창. 파일과 폴더를 안쪽 영역에 끌어다 놓습니다.</figcaption></figure>
+    <h3>방법 B — 탐색기 우클릭 메뉴</h3>
+    <ol>
+      <li>탐색기에서 보낼 파일·폴더를 선택하고 우클릭합니다. Windows 11에서는 먼저 <strong>추가 옵션 표시</strong>를 누릅니다.</li>
+      <li><strong>보내기</strong> → <strong>IntraDrop - 컴퓨터 이름</strong>을 선택합니다. 예: <em>IntraDrop - 회의실 PC</em></li>
+    </ol>
+    <p>등록된 컴퓨터마다 메뉴 항목이 하나씩 생깁니다. 다운로드한 설치 파일(.exe)도 실행되지 않고 그대로 전송되며, 문제가 생기면 메시지 창으로 알려 줍니다.</p>
+    <h3>알아 두세요</h3>
+    <ul>
+      <li>폴더는 안쪽 구조 그대로 전달됩니다.</li>
+      <li><strong>다른 프로그램에서 열어 둔 파일</strong>(편집 중인 엑셀 파일 등)은 마지막으로 저장한 내용을 보내고, 보내는 쪽에 "열린 파일의 복사본을 보냅니다" 풍선이 한 번 뜹니다. 방금 고친 내용까지 보내려면 먼저 저장하세요. 다른 프로그램이 읽기까지 막고 있으면 그 파일을 닫은 뒤 다시 보내세요.</li>
+      <li><strong>큰 전송</strong>(상대 설정의 수락 확인 크기 이상, 기본 256MB)은 상대가 60초 안에 <strong>수락</strong>해야 시작됩니다. 거절하거나 시간이 지나면 "상대방이 수신을 거절했습니다"로 끝납니다.</li>
+      <li>보내기만 할 수 있습니다. 상대 컴퓨터의 파일을 가져오는 기능은 없습니다.</li>
+    </ul>
   </section>
 
-  <section id="clipboard"><h2>4. 클립보드 자동 공유</h2>
-    <p><strong>클립보드 초기화:</strong> 트레이 아이콘 우클릭 → <strong>클립보드 초기화</strong>를 클릭하면 현재 PC의 텍스트·이미지·파일 목록을 비웁니다. 대기 중인 자동 공유와 이미 도착해 적용을 기다리던 수신 내용을 취소하며 다음 복사부터 자동 공유를 계속합니다. 원본 파일, 다른 PC의 클립보드, Windows 클립보드 기록(Win+V)은 삭제하지 않습니다. 이미 전송 중인 내용은 회수하지 않으며 이후 새로 도착하는 클립보드는 정상 수신합니다. 완료 여부는 트레이 메뉴 상태로 확인하고, 실패하면 안내 알림이 표시됩니다.</p>
-    <div class="note"><strong>Windows 7 화면 캡처:</strong> IntraDrop 실행 중 <strong>Win+Shift+S</strong>를 누르고 마우스로 사각형 영역을 드래그하면 클립보드에 이미지가 복사됩니다. <strong>Ctrl+V</strong>로 붙여넣을 수 있고 기존 이미지 복사처럼 등록된 컴퓨터에 자동 공유됩니다. <strong>Esc</strong> 또는 오른쪽 클릭으로 취소하며 취소하면 기존 클립보드를 유지합니다. 여러 모니터를 지원하고 파일은 자동 저장하지 않습니다. Windows 7에서만 동작하며 Windows 10/11에서는 운영체제의 기본 캡처 기능을 사용합니다. 단축키 등록 실패 알림이 나오면 다른 프로그램의 단축키 설정을 확인한 뒤 IntraDrop을 다시 실행하세요.</div>
-    <div class="note"><strong>Excel 화면과 입력 보호:</strong> Excel의 메뉴·대화상자가 열려 있거나 셀을 편집 중이거나 복사·잘라내기 단축키를 누르는 동안에는 다른 컴퓨터에서 받은 클립보드를 적용하지 않습니다. Excel이 클립보드를 직접 보유하지 않을 때도 보호하며, 기존의 로컬 복사·잘라내기 보호도 유지합니다. 로컬 복사·잘라내기가 남아 있지 않고 Excel이 대기 중이면 정상적으로 수신합니다. 자동 공유 전체가 꺼지거나 파일이 자동 전송되는 일은 없고, 오류 풍선도 띄우지 않습니다. 보호 중 건너뛴 내용은 나중에 적용하지 않으므로 메뉴·대화상자를 닫거나 입력을 끝낸 뒤 보내는 컴퓨터에서 다시 복사하세요.</div>
-    <ol><li>텍스트·이미지를 <strong>Ctrl+C</strong>로 복사합니다.</li><li>등록된 모든 컴퓨터로 자동 전송됩니다. 대상 컴퓨터를 선택할 필요가 없습니다.</li><li>전송이 끝나면 받는 컴퓨터의 원하는 앱이나 탐색기에서 <strong>Ctrl+V</strong>로 붙여넣습니다.</li></ol>
-    <div class="note"><strong>Ctrl+C → 등록된 모든 컴퓨터 → Ctrl+V</strong><br>트레이 메뉴의 <strong>클립보드 자동 공유 중</strong>에서 상태를 확인합니다. 받은 내용은 재전송하지 않으며 성공할 때마다 알림을 띄우지 않습니다. 꺼진 컴퓨터는 다른 전송을 막지 않습니다.</div>
-    <div class="note"><strong>Windows 7·10·11 간 사용:</strong> 모든 컴퓨터에 IntraDrop 1.9.1 이상을 설치하면 텍스트·이미지를 양방향으로 자동 공유합니다. 파일을 복사하는 컴퓨터도 업데이트해야 파일 자동 전송이 중단됩니다. 1.8.1·1.8.2도 수신은 가능합니다. 텍스트는 UTF-8 기준 1MB, 이미지는 PNG 기준 16MB 및 2,500만 픽셀까지 지원합니다. 파일·폴더는 자동 공유하지 않습니다.</div>
-    <p>파일·폴더의 <strong>Ctrl+C·Ctrl+X는 현재 컴퓨터에서만 동작</strong>하며 복사·잘라내기 상태를 그대로 유지합니다. 전송하려면 탐색기의 <strong>보내기 → IntraDrop - 대상 컴퓨터</strong>를 선택하거나 컴퓨터 목록에서 대상을 열어 파일을 끌어다 놓으세요. 큰 파일의 수락 절차는 기존과 같습니다.</p>
-    <p>HTML·RTF 서식은 일반 텍스트로 전달합니다. 앱 전용 OLE 객체·가상 첨부 파일은 파일로 저장한 뒤 보낼 컴퓨터를 지정하세요. 파일 형식이 포함되면 텍스트나 미리보기도 자동 공유하지 않습니다. 연결점·심볼릭 링크는 실제 파일·폴더로 바꿔 선택하세요. 연속 복사 시 대기 내용은 최신 복사로 교체됩니다. 연결 실패 후에는 새로 복사할 때 다시 전송합니다. 앱 시작 전의 클립보드는 보내지 않습니다. 붙여넣기 여부는 확인하지 않으며, 붙여넣지 않고 기다려도 재전송하거나 오류를 발생시키지 않습니다. 자동 공유 실패는 트레이 메뉴 상태와 툴팁에만 표시하며 팝업 알림은 띄우지 않습니다. 보내는 PC와 받는 PC 모두 1.9.2 이상으로 업데이트하세요. 직접 지정한 파일 전송의 오류 알림은 유지합니다.</p>
-    <p>v1.9.6에서는 <strong>복사한 컴퓨터 쪽</strong>도 보호합니다. Excel·Word·PowerPoint가 전면에서 메뉴·대화상자를 열었거나, 셀을 편집 중이거나, 마우스 버튼이나 Ctrl을 누르고 있는 동안에는 클립보드를 읽지 않고 조작이 끝난 뒤 한 번만 읽어 전달합니다. 이전에는 복사 직후 바로 읽어 Excel의 지연 렌더링을 강제했기 때문에 우클릭 메뉴가 닫히거나 연속 복사가 실패할 수 있었습니다.</p>
-    <p>v1.10.5에서는 <strong>Excel이 클립보드를 소유한다는 이유만으로 수신을 계속 막지 않습니다.</strong> 해당 Excel의 실제 복사·잘라내기 상태가 끝났음을 확인하면 새로 받은 내용을 적용합니다. 실제 복사·잘라내기, 메뉴·셀 편집 중이거나 상태를 확인할 수 없으면 계속 보호합니다. 확인 중 화면을 멈추거나 Excel의 복사 모드를 강제로 해제하지 않습니다. 보호 중 거부된 내용은 작업을 마친 뒤 보내는 PC에서 다시 복사하세요.</p>
-    <p>v1.10.5에서는 <strong>복사 시점의 창 정보를 보존해 정상 재복사를 전달합니다.</strong> Excel 편집 때문에 읽기가 지연된 뒤 다른 창으로 이동해도 되돌이로 오판하지 않습니다. 다른 내용을 복사한 뒤 예전에 받은 내용을 다시 복사하는 경우도 전달합니다. 다른 동기화 프로그램의 되돌이와 이미 적용된 동일 내용의 불필요한 재쓰기는 계속 억제합니다.</p>
-    <p>v1.10.4에서는 <strong>진단 로그</strong>를 남깁니다. 트레이 아이콘 우클릭 → <strong>진단 로그 열기</strong>를 클릭하면 %APPDATA%\IntraDrop\clipboard.log를 탐색기에서 선택합니다. 클립보드가 바뀐 시각과 소유 프로세스, 전면 창과 Office 메뉴·마우스·Ctrl 조합 상태, 읽기 지연·캡처·전송·수신 적용·거부 판정을 기록하며 복사한 내용과 일반 문자 키는 기록하지 않습니다. 4MB를 넘으면 clipboard.log.1로 한 번 보관합니다. Excel 복사 취소나 메뉴 닫힘이 다시 나타나면 그 시각 전후의 owner=와 판정 줄을 확인하세요.</p>
-    <p>v1.10.4에서는 <strong>되돌이를 감지</strong>합니다. 방금 보낸 내용과 같은 클립보드를 전면 앱이 아닌 다른 프로그램이 이 PC에 다시 쓰면 재전송하지 않고, 트레이 상태를 <strong>클립보드 자동 공유 (되돌이 감지)</strong>로 바꾸며 그 프로그램 이름을 알림으로 한 번 표시합니다. TightVNC·원격 데스크톱·클립보드 동기화 프로그램의 클립보드 공유가 켜져 있으면 IntraDrop이 상대 PC에 적용한 내용이 그 경로로 이 PC에 되돌아와 Excel의 복사 상태를 풀고 열린 메뉴를 닫습니다. IntraDrop이 클립보드를 공유하므로 그 프로그램의 클립보드 전송은 끄세요.</p>
+  <section id="receive"><h2>4. 파일 받기</h2>
+    <ul>
+      <li>IntraDrop이 실행 중이면 따로 할 일이 없습니다. 파일이 도착하면 <strong>파일 수신 완료</strong> 풍선이 뜨고, 풍선을 클릭하면 받은 폴더가 열립니다.</li>
+      <li>저장 위치는 설정의 <strong>다운로드 폴더</strong>(기본값 <code>다운로드\IntraDrop</code>)입니다. 트레이 메뉴의 <strong>다운로드 폴더 열기</strong>로 언제든 열 수 있습니다.</li>
+      <li>같은 이름의 파일이 이미 있으면 <code>이름 (2).확장자</code>처럼 번호를 붙여 저장합니다. 기존 파일을 덮어쓰지 않습니다.</li>
+      <li>큰 전송은 <strong>"○○ 님이 큰 파일을 보내려고 합니다"</strong> 창이 뜹니다. <strong>수락</strong>하면 받기 시작하고, <strong>거절</strong>하거나 60초가 지나면 받지 않습니다. 기준 크기는 설정의 <strong>수락 확인 크기</strong>(256MB / 512MB / 1GB)로 바꿉니다.</li>
+      <li>디스크 여유 공간이 모자라면 자동으로 거절하고 알려 줍니다.</li>
+      <li>모르는 컴퓨터가 보내는 것을 막으려면 설정에서 <strong>등록된 컴퓨터에서만 파일 받기</strong>를 켜세요.</li>
+    </ul>
   </section>
 
-  <section id="settings"><h2>5. 설정과 보안</h2>
-    <p>트레이 아이콘 우클릭 → <strong>설정</strong>에서 장치 이름, 다운로드 폴더, 수락 확인 크기, 포트, 공유 암호와 수신 허용 범위를 관리합니다.</p>
-    <figure class="shot"><img src="images/04-settings.png" alt="IntraDrop 설정 창"><figcaption class="caption">설정 창: 모든 컴퓨터의 포트와 공유 암호를 동일하게 맞춥니다.</figcaption></figure>
-    <table><thead><tr><th>설정</th><th>권장 사용법</th></tr></thead><tbody>
-      <tr><td>공유 암호</td><td>파일을 주고받는 모든 컴퓨터에 동일한 유효한 암호를 설정합니다. 인증과 AES-256 암호화가 활성화됩니다.</td></tr>
-      <tr><td>등록된 컴퓨터에서만 파일 받기</td><td>모르는 장치의 전송을 거부하려면 켭니다.</td></tr>
-      <tr><td>인증된 피어 UDP 자동 검색</td><td>켜면 같은 서브넷의 인증된 UDP 힌트로 주소 변경 후보를 찾습니다. 프로그램 시작·재시작 또는 네트워크 주소 변경 직후 최대 3회 짧게 재시도하는 등록 피어 직접 IP 알림은 이 설정과 무관하며, 같은 공유 암호와 인증된 장치 ID가 필요합니다.</td></tr>
-    </tbody></table>
+  <section id="clipboard"><h2>5. 클립보드 자동 공유</h2>
+    <p>글이나 그림을 복사하면 등록된 <strong>모든</strong> 컴퓨터에 자동으로 전달됩니다. 대상을 고르거나 버튼을 누를 필요가 없습니다.</p>
+    <ol>
+      <li>보낼 글·그림을 <kbd>Ctrl</kbd>+<kbd>C</kbd>로 복사합니다.</li>
+      <li>잠시 기다립니다. 성공할 때마다 알림을 띄우지는 않으며, 트레이 메뉴 두 번째 줄에서 상태를 볼 수 있습니다.</li>
+      <li>상대 컴퓨터의 원하는 프로그램에서 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여넣습니다.</li>
+    </ol>
+    <h3>무엇이 공유되나요</h3>
+    <table>
+      <tr><th>복사한 것</th><th>자동 공유</th></tr>
+      <tr><td>글(텍스트)</td><td>됩니다. 한글·여러 줄·이모지 포함 일반 텍스트, 1MB까지. 글꼴·색 같은 서식은 빠지고 글자만 전달됩니다.</td></tr>
+      <tr><td>그림(이미지)</td><td>됩니다. 화면 캡처나 그림판 등에서 복사한 비트맵, PNG 기준 16MB·2,500만 픽셀까지.</td></tr>
+      <tr><td>파일·폴더 (<kbd>Ctrl</kbd>+<kbd>C</kbd>/<kbd>X</kbd>)</td><td><strong>안 됩니다.</strong> 내 컴퓨터 안에서만 복사·잘라내기가 됩니다. 다른 컴퓨터로 보내려면 3절의 보내기 창이나 탐색기 보내기 메뉴를 쓰세요.</td></tr>
+      <tr><td>프로그램 전용 개체</td><td>안 됩니다. Outlook 첨부 파일, 앱 전용 OLE 개체 등은 파일로 저장한 뒤 파일로 보내세요.</td></tr>
+      <tr><td>다른 컴퓨터에서 받은 내용</td><td>다시 보내지 않습니다. 돌고 도는 일이 없습니다.</td></tr>
+    </table>
+    <h3>상태 줄 읽는 법</h3>
+    <p>트레이 아이콘 우클릭 메뉴의 두 번째 줄입니다. 마우스를 올리면 자세한 이유가 보입니다.</p>
+    <table>
+      <tr><th>표시</th><th>뜻</th></tr>
+      <tr><td>클립보드 자동 공유 중</td><td>정상입니다.</td></tr>
+      <tr><td>클립보드 자동 공유 (등록된 컴퓨터 없음)</td><td>보낼 곳이 없습니다. 2절대로 컴퓨터를 등록하세요.</td></tr>
+      <tr><td>클립보드 자동 공유 (전송 실패)</td><td>마지막 전송이 한 컴퓨터 이상에서 실패했습니다. 상대가 꺼져 있거나 공유 암호가 다른 경우가 대부분입니다. 다음에 복사하면 다시 시도합니다.</td></tr>
+      <tr><td>클립보드 자동 공유 (되돌이 감지)</td><td>아래 "Excel 복사가 풀릴 때"를 보세요.</td></tr>
+      <tr><td>클립보드 초기화 완료</td><td>방금 클립보드를 비웠습니다. 다음 복사부터 다시 공유합니다.</td></tr>
+    </table>
+    <h3>클립보드 초기화</h3>
+    <p>트레이 아이콘 우클릭 → <strong>클립보드 초기화</strong>는 이 컴퓨터의 클립보드를 비우고, 아직 보내지 않은 내용과 적용을 기다리던 수신 내용을 취소합니다. 비밀번호 같은 민감한 내용을 복사한 뒤 지우고 싶을 때, 또는 공유가 꼬인 것 같을 때 누르세요. 원본 파일, 다른 컴퓨터의 클립보드, Windows 클립보드 기록(<kbd>Win</kbd>+<kbd>V</kbd>)은 건드리지 않습니다.</p>
+    <h3>Excel·Word·PowerPoint를 쓰는 중이라면</h3>
+    <ul>
+      <li><strong>받는 컴퓨터</strong>가 Excel에서 메뉴를 열어 두었거나, 셀을 편집 중이거나, 복사·잘라내기(점선 테두리) 상태이면 다른 컴퓨터에서 온 내용을 적용하지 않습니다. 작업을 방해하지 않기 위해서이며, 이때 건너뛴 내용은 나중에도 적용되지 않습니다. 그쪽 작업이 끝난 뒤 <strong>보내는 컴퓨터에서 다시 복사</strong>하세요.</li>
+      <li><strong>보내는 컴퓨터</strong>에서 Office 메뉴·셀 편집·마우스 버튼이나 <kbd>Ctrl</kbd>을 누르고 있는 동안에는 읽기를 잠시 미루었다가, 조작이 끝나면 한 번만 읽어 보냅니다.</li>
+    </ul>
+    <h3 id="echo">Excel 복사가 바로 풀리거나 우클릭 메뉴가 닫힐 때</h3>
+    <p>VNC·원격 데스크톱·클립보드 동기화 프로그램의 클립보드 공유가 켜져 있으면, IntraDrop이 상대 컴퓨터에 전달한 내용이 그 프로그램을 타고 이 컴퓨터로 <strong>되돌아와</strong> Excel의 복사 상태를 풀고 열린 메뉴를 닫습니다. IntraDrop은 이를 감지하면 다시 보내지 않고 상태를 <strong>(되돌이 감지)</strong>로 바꾸며, 어느 프로그램이 되돌려 썼는지 풍선으로 한 번 알려 줍니다. 클립보드는 IntraDrop이 공유하므로 <strong>그 프로그램의 클립보드 공유 기능은 끄세요.</strong></p>
+    <h3>진단 로그</h3>
+    <p>트레이 아이콘 우클릭 → <strong>진단 로그 열기</strong>를 누르면 <code>%APPDATA%\IntraDrop\clipboard.log</code>를 탐색기에서 보여 줍니다. 클립보드가 언제 바뀌었고 어느 프로그램이 썼으며 왜 보내거나 건너뛰었는지가 적혀 있고, <strong>복사한 내용 자체는 기록하지 않습니다.</strong> 4MB를 넘으면 <code>clipboard.log.1</code>로 한 번 보관합니다. 문제를 문의할 때 이 파일을 함께 보내 주세요.</p>
+    <div class="note"><strong>Windows 7에서 화면 일부 캡처하기:</strong> IntraDrop 실행 중 <kbd>Win</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd>를 누르고 마우스로 영역을 드래그하면 이미지가 클립보드에 복사되어 <kbd>Ctrl</kbd>+<kbd>V</kbd>로 붙여넣을 수 있고, 다른 이미지 복사처럼 등록된 컴퓨터에도 공유됩니다. <kbd>Esc</kbd>나 오른쪽 클릭으로 취소합니다. Windows 10/11에서는 Windows 기본 캡처 기능(같은 단축키)을 쓰면 됩니다.</div>
   </section>
 
-  <section id="trouble"><h2>6. 연결되지 않을 때</h2><ul>
-    <li>양쪽 컴퓨터에서 IntraDrop이 실행 중인지 확인합니다.</li><li>등록 주소, 포트, 공유 암호가 서로 맞는지 확인합니다.</li><li>컴퓨터 목록의 <strong>새로고침</strong>을 누릅니다.</li><li>Windows 방화벽에서 IntraDrop의 개인 네트워크 통신이 허용됐는지 확인합니다.</li><li>VLAN, 게스트 Wi-Fi, Wi-Fi 클라이언트 격리 환경에서는 장치 간 통신이 차단될 수 있습니다.</li>
-  </ul></section>
-  <footer>IntraDrop 1.10.5 · 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
+  <section id="settings"><h2>6. 설정</h2>
+    <p>트레이 아이콘 우클릭 → <strong>설정</strong>에서 바꿉니다. <strong>저장</strong>을 누르면 바로 적용됩니다.</p>
+    <figure class="shot"><img src="images/04-settings.png" alt="IntraDrop 설정 창"><figcaption class="caption">설정 창. 포트와 공유 암호는 모든 컴퓨터에서 같아야 합니다.</figcaption></figure>
+    <table>
+      <tr><th>항목</th><th>설명</th></tr>
+      <tr><td>내 장치 이름</td><td>상대 컴퓨터의 목록과 알림에 보이는 내 이름입니다. 비워 두면 Windows 컴퓨터 이름을 씁니다.</td></tr>
+      <tr><td>다운로드 폴더</td><td>받은 파일을 저장할 곳입니다.</td></tr>
+      <tr><td>수락 확인 크기</td><td>이 크기 이상(256MB / 512MB / 1GB)의 전송은 받기 전에 수락 창을 띄웁니다.</td></tr>
+      <tr><td>포트</td><td>기본 <code>45671</code>. 바꾸면 모든 컴퓨터에서 같은 값으로 바꾸고 방화벽도 확인하세요.</td></tr>
+      <tr><td>Windows 시작 시 자동 실행</td><td>로그인하면 IntraDrop이 자동으로 켜집니다. 설치할 때 고른 값이 처음에 반영됩니다.</td></tr>
+      <tr><td>공유 암호</td><td>모든 컴퓨터에 같은 암호를 넣으면 AES-256 암호화와 상대 인증이 켜집니다. 입력란을 비운 채 저장하면 기존 암호가 그대로 유지되고, 암호를 없애려면 <strong>저장된 암호 지우기</strong>를 누르세요. 암호는 이 Windows 계정만 읽을 수 있게 보호되어 저장됩니다.</td></tr>
+      <tr><td>등록된 컴퓨터에서만 파일 받기</td><td>컴퓨터 목록에 없는 컴퓨터가 보낸 파일과 클립보드를 거부합니다.</td></tr>
+      <tr><td>IP가 바뀐 컴퓨터 자동 검색</td><td>같은 네트워크에서 IP가 바뀐 등록 컴퓨터를 찾아 인증한 뒤 주소를 갱신합니다. 공유 암호가 필요합니다. 꺼도 프로그램 시작 시 등록된 컴퓨터에 내 IP를 알리는 동작은 계속합니다.</td></tr>
+    </table>
+    <div class="warning"><strong>"저장된 공유 암호를 읽을 수 없습니다"</strong>라는 경고가 보이면 다른 Windows 계정에서 만든 설정이거나 저장된 암호가 손상된 것입니다. 안전을 위해 전송을 멈추므로, 설정에서 새 암호를 입력하거나 <strong>저장된 암호 지우기</strong>를 눌러 주세요.</div>
+  </section>
+
+  <section id="trouble"><h2>7. 문제 해결</h2>
+    <table>
+      <tr><th>증상</th><th>확인할 것</th></tr>
+      <tr><td>목록에서 오프라인으로 보임<br>"…에 연결할 수 없습니다"</td><td>① 상대 컴퓨터에서 IntraDrop이 실행 중인지 ② 등록한 주소가 상대의 현재 IP인지(바뀌었으면 <strong>수정</strong>) ③ 양쪽 포트가 같은지 ④ 방화벽에서 개인 네트워크 허용인지 ⑤ 같은 네트워크인지(손님용 Wi-Fi·VLAN·클라이언트 격리는 차단). 확인 후 <strong>새로고침</strong>.</td></tr>
+      <tr><td>"공유 암호가 일치하지 않습니다"<br>"상대방이 공유 암호를 요구합니다"<br>"상대방에게는 공유 암호가 설정되어 있지 않습니다"</td><td>양쪽 설정의 공유 암호를 똑같이 맞추거나 양쪽 모두 지우세요.</td></tr>
+      <tr><td>"상대방의 허용 목록에 이 컴퓨터가 없습니다"</td><td>상대 컴퓨터가 <strong>등록된 컴퓨터에서만 파일 받기</strong>를 켜 두었습니다. 상대 컴퓨터의 목록에 내 컴퓨터를 등록하게 하세요.</td></tr>
+      <tr><td>"저장된 공유 암호를 복호화할 수 없습니다"</td><td>설정에서 새 암호를 입력하거나 <strong>저장된 암호 지우기</strong>를 누르세요 (6절 경고 참고).</td></tr>
+      <tr><td>시작할 때 "포트 … 을(를) 열 수 없습니다"</td><td>다른 프로그램이 그 포트를 쓰고 있습니다. 설정에서 포트를 바꾸고 모든 컴퓨터를 같은 값으로 맞추세요.</td></tr>
+      <tr><td>복사했는데 상대 컴퓨터에 붙여넣기가 안 됨</td><td>트레이 메뉴 상태 줄을 확인하세요. 파일·폴더와 프로그램 전용 개체는 자동 공유 대상이 아닙니다. 상대가 Excel 작업 중이면 끝난 뒤 다시 복사하세요. 양쪽 모두 최신 버전인지도 확인하세요.</td></tr>
+      <tr><td>Excel 복사가 바로 풀리거나 우클릭 메뉴가 닫힘</td><td>5절 <a href="#echo">"Excel 복사가 바로 풀릴 때"</a>대로 VNC·원격 데스크톱·클립보드 동기화 프로그램의 클립보드 공유를 끄세요. 계속되면 진단 로그를 확인하세요.</td></tr>
+      <tr><td>탐색기 보내기 메뉴에 컴퓨터가 없음</td><td>컴퓨터 목록 창을 열어 <strong>새로고침</strong>하거나 IntraDrop을 다시 실행하면 메뉴가 다시 만들어집니다. Windows 11은 <strong>추가 옵션 표시</strong> 안에 있습니다.</td></tr>
+      <tr><td>같은 컴퓨터가 두 개로 보임</td><td>2절 "상대 컴퓨터의 IP가 바뀌었을 때"대로 옛 항목을 수정해 합치세요.</td></tr>
+    </table>
+    <h3>제거</h3>
+    <p>Windows 설정 → 앱(또는 제어판 → 프로그램 제거)에서 IntraDrop을 제거하면 탐색기 보내기 메뉴 항목과 자동 실행 등록도 함께 지워집니다. 설정 파일은 <code>%APPDATA%\IntraDrop</code>에 남으므로 완전히 지우려면 이 폴더를 삭제하세요.</p>
+  </section>
+
+  <footer>IntraDrop 오프라인 도움말 · <a href="https://github.com/yunhyok/IntraDrop">프로젝트 페이지</a></footer>
 </main>
 </body>
 </html>

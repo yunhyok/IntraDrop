@@ -1,3 +1,5 @@
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using IntraDrop.Core;
 using IntraDrop.Models;
 
@@ -7,6 +9,8 @@ public class PeerListForm : Form
 {
     private readonly TrayApplicationContext _ctx;
     private readonly ListView _list;
+    private readonly Label _me;
+    private readonly Label _hint;
     private int _refreshGeneration;
     private CancellationTokenSource? _refreshCts;
     private readonly SemaphoreSlim _transitiveSlots = new(3, 3);
@@ -53,17 +57,26 @@ public class PeerListForm : Form
             MakeButton("보내기 창(&S)", (_, _) => OpenDropForSelected()),
         });
 
-        var hint = new Label
+        _hint = new Label
         {
             Dock = DockStyle.Bottom,
             AutoSize = true,
-            Text = "더블클릭: 보내기 · 마우스를 올리면 컴퓨터 이름과 장치 ID 확인",
             ForeColor = SystemColors.GrayText,
             Padding = new Padding(8, 2, 3, 2),
         };
+        // 상대 PC 에 등록할 때 필요한 내 주소. 사용자가 ipconfig 를 찾아 헤매지 않게 한다.
+        _me = new Label
+        {
+            Dock = DockStyle.Top,
+            AutoEllipsis = true,   // 가상 어댑터가 많아 IP 가 길어지면 … 으로 줄인다 (창을 넓히면 전부 보인다)
+            TextAlign = ContentAlignment.MiddleLeft,
+            Padding = new Padding(8, 0, 8, 0),
+        };
+        _me.Height = _me.Font.Height + 14;
 
         Controls.Add(_list);
-        Controls.Add(hint);
+        Controls.Add(_me);
+        Controls.Add(_hint);
         Controls.Add(buttons);
 
         ReloadList();
@@ -107,6 +120,26 @@ public class PeerListForm : Form
             _list.Items.Add(item);
         }
         _list.EndUpdate();
+        _me.Text = $"내 컴퓨터: {_ctx.Settings.DeviceName} · IP {LocalAddresses()}   (상대 컴퓨터에서는 이 주소를 등록하세요)";
+        _hint.Text = _list.Items.Count == 0
+            ? "등록된 컴퓨터가 없습니다. [추가]를 눌러 상대 컴퓨터의 IP 주소와 별명을 등록하세요."
+            : "더블클릭: 보내기 · 마우스를 올리면 컴퓨터 이름과 장치 ID 확인";
+    }
+
+    private static string LocalAddresses()
+    {
+        try
+        {
+            var addresses = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up &&
+                            n.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Select(u => u.Address)
+                .Where(a => a.AddressFamily == AddressFamily.InterNetwork && a.GetAddressBytes()[0] != 169)   // APIPA 제외
+                .Select(a => a.ToString()).Distinct().ToList();
+            return addresses.Count == 0 ? "확인 불가" : string.Join(", ", addresses);
+        }
+        catch { return "확인 불가"; }
     }
 
     private PeerInfo? SelectedPeer =>
@@ -121,12 +154,6 @@ public class PeerListForm : Form
         if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
         var peer = dlg.Result!;
-        if (_ctx.PeerRegistry.Snapshot().Any(p => p.Host.Equals(peer.Host, StringComparison.OrdinalIgnoreCase)))
-        {
-            MessageBox.Show(this, "이미 등록된 주소입니다.", "IntraDrop",
-                MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
-        }
         if (!_ctx.PeerRegistry.Add(peer))
         {
             MessageBox.Show(this, "이미 등록된 주소입니다.", "IntraDrop", MessageBoxButtons.OK, MessageBoxIcon.Warning);

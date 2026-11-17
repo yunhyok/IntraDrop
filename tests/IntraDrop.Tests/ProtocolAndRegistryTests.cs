@@ -14,7 +14,8 @@ public sealed class ProtocolAndRegistryTests
         string help = Path.Combine(AppContext.BaseDirectory, "Help", "index.html");
         Assert.True(File.Exists(help), help);
         string html = File.ReadAllText(help);
-        Assert.Contains("외부 컴퓨터 등록", html);
+        Assert.Contains("컴퓨터 등록", html);
+        Assert.Contains("images/04-settings.png", html);
         Assert.Contains("images/02-add-computer.png", html);
         Assert.Contains("images/03-send-window.png", html);
         Assert.True(File.Exists(Path.Combine(AppContext.BaseDirectory, "Help", "images", "02-add-computer.png")));

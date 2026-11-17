@@ -17,7 +17,9 @@ internal static class Program
         }
         if (args.Length == 1 && args[0] == "--remove-explorer-integration")
         {
+            // 제거 시 호출. 앱이 직접 만든 자동 실행 항목도 함께 지워야 삭제된 exe 를 가리키는 Run 값이 남지 않는다.
             ExplorerContextMenu.Sync(new IntraDrop.Models.AppSettings());
+            try { AutoStart.Apply(false); } catch { }
             return;
         }
         // 숨김 CLI 모드: IntraDrop.exe --send <호스트> <경로> [경로...]

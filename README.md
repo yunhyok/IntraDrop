@@ -32,12 +32,14 @@
 
 ## 설치
 
-[Releases](https://github.com/yunhyok/IntraDrop/releases)에서 사용하는 Windows 버전에 맞는 인스톨러를 내려받아 실행하고, 파일을 주고받을 **모든 컴퓨터에 각각 설치**합니다. 설치 중 "Windows 시작 시 자동 실행" 옵션을 선택할 수 있습니다.
+[Releases](https://github.com/yunhyok/IntraDrop/releases)에서 사용하는 Windows 버전에 맞는 인스톨러를 내려받아 실행하고, 파일을 주고받을 **모든 컴퓨터에 각각 설치**합니다. 설치 중 "Windows 시작 시 자동 실행" 옵션을 선택할 수 있으며, 첫 실행 시 이 선택이 설정에 그대로 반영됩니다.
 
 | Windows 버전 | 인스톨러 | 비고 |
 |---|---|---|
-| Windows 10 / 11 (64비트) | `IntraDrop-Setup-1.10.5.exe` | .NET 런타임 포함, 별도 설치 불필요 |
-| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-1.10.5-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+| Windows 10 / 11 (64비트) | `IntraDrop-Setup-<버전>.exe` | .NET 런타임 포함, 별도 설치 불필요 |
+| Windows 7 SP1 / 8 / 8.1 (32/64비트) | `IntraDrop-Setup-<버전>-win7.exe` | [.NET Framework 4.8](https://dotnet.microsoft.com/download/dotnet-framework/net48) 필요 (없으면 설치 시 안내) |
+
+설치 폴더는 설치 화면에서 **찾아보기**로 바꿀 수 있고, 다시 설치하면 기존 설치 모드·폴더·사용자 설정이 유지됩니다. 모든 사용자용 설치는 Program Files 가 기본이며, 현재 사용자 전용으로 설치하면 관리자 권한이 필요 없습니다.
 
 서로 다른 버전의 Windows끼리도 정상적으로 파일을 주고받을 수 있습니다 (동일 프로토콜).
 
@@ -110,7 +112,7 @@ v1.10.4에서는 **되돌이를 감지**합니다. 방금 보낸 내용과 같�
 
 ## 직접 빌드하기
 
-요구 사항: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), (인스톨러 빌드 시) [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+요구 사항: [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), (인스톨러 빌드 시) [Inno Setup 6 이상](https://jrsoftware.org/isinfo.php)
 (net48 빌드는 NuGet 참조 어셈블리 패키지를 사용하므로 .NET Framework Developer Pack을 따로 설치할 필요가 없습니다.)
 
 ```powershell
@@ -152,7 +154,3 @@ iscc installer/IntraDrop-Win7.iss   # Windows 7용
 ## 라이선스
 
 [MIT License](LICENSE)
-
-## Installer 1.10.7
-
-The destination page is shown on fresh installs and reinstalls, with a Browse button for another drive or folder. New all-user installs default to Windows Program Files. Existing install mode, selected path and user settings are preserved. Choosing the current-user mode keeps its per-user default and needs no administrator rights.
